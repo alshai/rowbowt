@@ -4,7 +4,7 @@
 extern "C" {
 #include <zlib.h>
 #ifndef AC_KSEQ_H
-#include "klib/kseq.h"
+#include "kseq.h"
 KSEQ_INIT(gzFile, gzread);
 #endif
 }
