@@ -1,0 +1,9 @@
+[submodule "klib"]
+	path = klib
+	url = https://github.com/attractivechaos/klib.git
+[submodule "sdsl-lite"]
+	path = sdsl-lite
+	url = https://github.com/xxsds/sdsl-lite
+[submodule "pfbwt-f"]
+	path = pfbwt-f
+	url = https://github.com/alshai/pfbwt-f
