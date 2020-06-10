@@ -22,9 +22,10 @@ rbwt::RowBowtConstructArgs parse_args(int argc, char** argv) {
         {"output_prefix", required_argument, 0, 'o'},
         {"tsa", required_argument, 0, 's'},
         {"ma", required_argument, 0, 'm'},
+        {"dl", required_argument, 0, 'l'},
     };
     int long_index = 0;
-    while((c = getopt_long(argc, argv, "o:smh", long_options, &long_index)) != -1) {
+    while((c = getopt_long(argc, argv, "o:lsmh", long_options, &long_index)) != -1) {
         switch (c) {
             case 'o':
                 args.prefix = optarg;
@@ -34,6 +35,9 @@ rbwt::RowBowtConstructArgs parse_args(int argc, char** argv) {
                 break;
             case 'm':
                 args.ma = 1;
+                break;
+            case 'l':
+                args.dl = 1;
                 break;
             case 'h':
                 print_help();
@@ -62,6 +66,9 @@ rbwt::RowBowtConstructArgs parse_args(int argc, char** argv) {
     }
     if (args.ma) {
         args.ma_fname = inpre + ".ma";
+    }
+    if (args.dl) {
+        args.dl_fname = inpre + ".docs";
     }
     return args;
 }

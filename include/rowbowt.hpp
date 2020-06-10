@@ -11,8 +11,7 @@
 #include "marker_array.hpp"
 #include "toehold_sa.hpp"
 #include "rle_string.hpp"
-#include "sdsl_bv_wrappers.hpp"
-#include "sdsl/bit_vectors.hpp"
+#include "doclist.hpp"
 
 namespace rbwt {
 
@@ -25,14 +24,17 @@ class RowBowt {
     using range_t = std::pair<uint64_t, uint64_t>;
 
     RowBowt() { }
+
     RowBowt(rle_string_t& bwt
             ,const std::optional<MarkerArray<>>& ma
             ,const std::optional<ToeholdSA>& tsa
+            ,const std::optional<DocList>& dl
             )
         : bwt_(bwt)
         , f_(build_f(bwt))
         , ma_(ma)
         , tsa_(tsa)
+        , dl_(dl)
     {
         r_ = bwt_.number_of_runs();
     }
@@ -175,6 +177,9 @@ class RowBowt {
         return tsa_->locate_range(range.first, range.second, k, max_hits, locs);
     }
 
+    std::pair<std::string, uint64_t> resolve_offset(uint64_t i) const {
+        return dl_->doc_and_offset_at(i);
+    }
 
     /*
 
@@ -250,28 +255,9 @@ class RowBowt {
     std::vector<uint64_t> f_;
     std::optional<ToeholdSA> tsa_;
     std::optional<MarkerArray<>> ma_;
-    // std::optional<DocList> docs_;
+    std::optional<DocList> dl_;
     uint64_t r_;
 };
+}
 
-/*
-constexpr uint8_t TERMINATOR = 1;
-std::vector<uint64_t> build_f(std::ifstream& ifs) {
-    std::vector<uint64_t> f_(256,0);
-    uint8_t c;
-    uint64_t i = 0;
-    while (ifs >> c) {
-        if (c>TERMINATOR) f_[c]++;
-        else f_[TERMINATOR]++;
-        i++;
-    }
-    for(uint64_t i=255;i>0;--i)
-        f_[i] = f_[i-1];
-    f_[0] = 0;
-    for(uint64_t i=1;i<256;++i)
-        f_[i] += f_[i-1];
-    return f_;
-}
-*/
-}
 #endif

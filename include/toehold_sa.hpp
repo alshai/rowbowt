@@ -5,6 +5,8 @@
  * Prezza et. al Optimal-Time Text Indexing in BWT-runs Bounded Space. 2017. https://arxiv.org/abs/1705.10382
  * Code heavily derived from Nicola Prezza's r-index repo: https://github.com/nicolaprezza/r-index
  * NOTE: currently only supports the Phi function (citation here)
+ *
+ * TODO: use memory mapping when doing construction
  */
 
 #include <string>
@@ -134,7 +136,7 @@ class ToeholdSA {
         uint64_t x = 0;
         uint64_t y = 0;
         uint64_t i = 0;
-        while (ifs.read((char*) &x, 8) && ifs.read((char*) &y, 8)) {
+        while (ifs.read(reinterpret_cast<char*>(&x), 8) && ifs.read(reinterpret_cast<char*>(&y), 8)) {
             ssa.push_back(std::pair<uint64_t,uint64_t>(y ? y-1 : n-1, i));
             i++;
         }
@@ -146,7 +148,7 @@ class ToeholdSA {
         std::ifstream ifs(fname);
         uint64_t x = 0;
         uint64_t y = 0;
-        while (ifs.read((char*) &x, 8) && ifs.read((char*) &y, 8)) {
+        while (ifs.read(reinterpret_cast<char*>(&x), 8) && ifs.read(reinterpret_cast<char*>(&y), 8)) {
             esa.push_back(y ? y-1 : n-1);
         }
         return esa;

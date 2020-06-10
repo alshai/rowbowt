@@ -104,7 +104,9 @@ void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq) {
         rbwt.locs_at(ret.r, ret.ts, static_cast<uint64_t>(-1), ret.locs);
         std:: cout << "\tlocs: ";
         for (auto l: ret.locs) {
-            std:: cout << l << " ";
+            std::cout << l << "/";
+            auto x = rbwt.resolve_offset(l);
+            std::cout << x.first << ":" << x.second << " ";
         } std::cout << "\n";
     }
     if (args.markers) {
@@ -119,7 +121,7 @@ void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq) {
 
 rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
     rbwt::LoadRbwtFlag flag;
-    if (args.sam) flag = flag | rbwt::LoadRbwtFlag::SA;
+    if (args.sam) flag = flag | rbwt::LoadRbwtFlag::SA | rbwt::LoadRbwtFlag::DL;
     if (args.markers) flag = flag | rbwt::LoadRbwtFlag::MA;
     rbwt::RowBowt rbwt(rbwt::load_rowbowt(args.inpre, flag));
     return rbwt;

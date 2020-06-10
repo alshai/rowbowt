@@ -24,6 +24,7 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-g -ggdb -Ofast -fstrict-aliasing -march=nat
 add_executable(rb_build src/rb_build.cpp)
 add_executable(rb_align src/rb_align.cpp)
 TARGET_LINK_LIBRARIES(rb_align z)
+add_executable(tmp tmp.cpp)
 
 # install(TARGETS ri_align DESTINATION bin)
 # install(TARGETS ri_build DESTINATION bin)
