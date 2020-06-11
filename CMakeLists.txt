@@ -7,6 +7,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 project (rowbowt)
+add_subdirectory(pfbwt-f)
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
@@ -26,5 +27,5 @@ add_executable(rb_align src/rb_align.cpp)
 TARGET_LINK_LIBRARIES(rb_align z)
 add_executable(tmp tmp.cpp)
 
-# install(TARGETS ri_align DESTINATION bin)
-# install(TARGETS ri_build DESTINATION bin)
+install(TARGETS rb_align DESTINATION bin)
+install(TARGETS rb_build DESTINATION bin)
