@@ -115,11 +115,60 @@ class RowBowt {
         for (uint32_t i = 0; i < query.size(); ++i) {
             std::tie(range, k) = LF_w_loc(range, query[m-i-1], k);
             if (range.second < range.first) {
-                return std::make_pair(range_t(), 0);
+                return std::make_pair(range, 0);
             }
         }
         // range and k can be used to find locations
         return std::make_pair(range, k);
+    }
+
+
+    struct LFData {
+        LFData() {};
+        LFData(range_t r, uint64_t s, uint64_t e, uint64_t ss)
+            : rn(r)
+            , qstart(s)
+            , qend(e)
+            , ssamp(ss)
+        {}
+        range_t rn;
+        uint64_t qstart;
+        uint64_t qend;
+        uint64_t ssamp;
+    };
+
+    // Return BWT range along with a 'toehold' sample of the suffix array. This toehold can be used find neighboring
+    // values in the suffix array
+    std::vector<LFData>& find_range_w_toehold_greedy(const std::string& query, uint64_t min_length, std::vector<LFData>& lfdata) const {
+        lfdata.clear();
+        if (!tsa_) return lfdata;
+        uint64_t m = query.size();
+        range_t range = full_range();
+        range_t prev_range = full_range();
+        const uint64_t first_k = tsa_->get_last_run_sample();
+        uint64_t k = first_k;
+        uint64_t pk = -1;
+        uint64_t ei = m;
+        for (uint64_t i = 0; i < query.size(); ++i) {
+            std::tie(range, k) = LF_w_loc(range, query[m-i-1], k);
+            if (range.second < range.first) {
+                if (ei - (m-i) >= min_length) {
+                    // m - i is start because we shouldn't count the current position in query
+                    lfdata.push_back(LFData(prev_range, m-i, ei, pk));
+                }
+                // reset everything, skip to next i
+                k = first_k;
+                range = full_range();
+                prev_range = full_range();
+                ei = m-i-1; // this makes sure we skip current position in query for the next range
+            } else {
+                prev_range = range;
+                pk = k;
+            }
+        }
+        lfdata.push_back(LFData(prev_range, 0, ei, pk));
+        // range and k can be used to find locations
+        return lfdata;
     }
 
     //
@@ -168,7 +217,7 @@ class RowBowt {
         return {nrange, nk};
     }
 
-    std::vector<uint64_t>& locs_at(range_t range, uint64_t k, uint64_t max_hits, vector<uint64_t>& locs) const {
+    std::vector<uint64_t>& locs_at(range_t range, uint64_t k, uint64_t max_hits, std::vector<uint64_t>& locs) const {
         return tsa_->locate_range(range.first, range.second, k, max_hits, locs);
     }
 
@@ -181,15 +230,41 @@ class RowBowt {
         return dl_->doc_and_offset_at(i);
     }
 
-    /*
-
-    std::vector<uint64_t> locate_range(range_t range, uint64_t k, uint64_t max_hits = -1) {
+    std::vector<uint64_t> locate_pattern(std::string s, uint64_t max_hits, std::vector<uint64_t>& locs) {
+        auto range_k = find_range_w_toehold(s);
+        return locs_at(range_k.first, range_k.second, max_hits, locs);
     }
 
-    std::vector<uint64_t> locate_pattern(std::string s, uint64_t max_hits = -1) {
+    std::vector<uint64_t>& locate_pattern_greedy_seeding(std::string s, uint64_t min_length, uint64_t max_hits, std::vector<uint64_t>& locs) {
+        locs.clear();
+        std::vector<LFData> lfs;
+        lfs = find_range_w_toehold_greedy(s, min_length, lfs);
+        if (!lfs.size()) {
+            return locs;
+        }
+        LFData best_range;
+        uint64_t max_length = 0;
+        for (const auto& lfd: lfs) {
+            auto length = lfd.qend - lfd.qstart;
+            if (length > max_length) {
+                max_length = length;
+                best_range = lfd;
+                // std::cout << "best seed [" << lfd.rn.first << " " << lfd.rn.second << "), query [" << lfd.qstart << " " << lfd.qend << ") \n";
+            }
+        }
+        // locate for best lf
+        locs = locs_at(best_range.rn, best_range.ssamp, max_hits, locs);
+        // correction based on where the seed is in the read
+        for (uint64_t i = 0; i < locs.size(); ++i) {
+            locs[i] = locs[i] - best_range.qstart;
+        }
+        return locs;
     }
 
-    */
+    std::vector<uint64_t> locate_pattern_greedy_seeding(std::string s, uint64_t min_length, uint64_t max_hits) {
+        std::vector<uint64_t> locs;
+        return locate_pattern_greedy_seeding(s, min_length, max_hits, locs);
+    }
 
 
     /* we should expect the user to serialize during construction */

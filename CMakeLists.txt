@@ -25,7 +25,12 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-g -ggdb -Ofast -fstrict-aliasing -march=nat
 add_executable(rb_build src/rb_build.cpp)
 add_executable(rb_align src/rb_align.cpp)
 TARGET_LINK_LIBRARIES(rb_align z)
-add_executable(tmp tmp.cpp)
+
+add_executable(test_greedy_seeding tests/greedy_seeding/test.cpp)
+TARGET_LINK_LIBRARIES(test_greedy_seeding z)
+
+
+add_test(GREEDY_SEEDING test_greedy_seeding)
 
 install(TARGETS rb_align DESTINATION bin)
 install(TARGETS rb_build DESTINATION bin)

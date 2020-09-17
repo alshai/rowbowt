@@ -94,7 +94,12 @@ RowBowt load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
     bwt_ifs.close();
     if (static_cast<bool>(flag & LoadRbwtFlag::SA)) {
         std::cerr << "loading: " << prefix + tsa_suffix << std::endl;
-        std::ifstream tsa_ifs(prefix + tsa_suffix);
+        uint64_t x;
+        std::ifstream tsa_ifs(prefix + tsa_suffix, std::ios_base::in | std::ios_base::binary);
+        if (!tsa_ifs.good()) {
+            std::cerr << "bad tsa file" << std::endl;
+            exit(1);
+        }
         tsa.load(tsa_ifs);
         tsa_ifs.close();
     }
@@ -110,6 +115,7 @@ RowBowt load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
         dl.load(dl_ifs);
         dl_ifs.close();
     }
+    auto x = std::make_optional(tsa);
     return RowBowt(bwt, std::make_optional(ma), std::make_optional(tsa), std::make_optional(dl));
 }
 }
