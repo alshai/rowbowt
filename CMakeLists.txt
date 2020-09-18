@@ -7,6 +7,12 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 project (rowbowt)
+set(CMAKE_CXX_FLAGS "--std=c++17")
+set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb -g -march=native")
+set(CMAKE_CXX_FLAGS_RELEASE "-g -Ofast -fstrict-aliasing -march=native -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-g -ggdb -Ofast -fstrict-aliasing -march=native")
+
+
 add_subdirectory(pfbwt-f)
 
 include_directories(${PROJECT_SOURCE_DIR})
@@ -14,23 +20,14 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/sdsl-lite/include)
 include_directories(${PROJECT_SOURCE_DIR}/pfbwt-f/include)
 
+add_subdirectory(${PROJECT_SOURCE_DIR}/tests)
 message("Building in ${CMAKE_BUILD_TYPE} mode")
 
-set(CMAKE_CXX_FLAGS "--std=c++17")
 
-set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb -g -march=native")
-set(CMAKE_CXX_FLAGS_RELEASE "-g -Ofast -fstrict-aliasing -march=native -DNDEBUG")
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-g -ggdb -Ofast -fstrict-aliasing -march=native")
 
 add_executable(rb_build src/rb_build.cpp)
 add_executable(rb_align src/rb_align.cpp)
 TARGET_LINK_LIBRARIES(rb_align z)
-
-add_executable(test_greedy_seeding tests/greedy_seeding/test.cpp)
-TARGET_LINK_LIBRARIES(test_greedy_seeding z)
-
-
-add_test(GREEDY_SEEDING test_greedy_seeding)
 
 install(TARGETS rb_align DESTINATION bin)
 install(TARGETS rb_build DESTINATION bin)
