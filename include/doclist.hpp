@@ -56,7 +56,7 @@ class DocList {
 
     void load(std::istream& ifs) {
         std::string name;
-        uint64_t pos;
+        uint64_t pos = 0;
         std::vector<std::string> namev;
         std::vector<uint64_t> posv;
         while (ifs >> name >> pos) { // each doc name associated w/ start pos
