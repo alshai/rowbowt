@@ -98,7 +98,7 @@ RowBowtRet rb_get_range(const rbwt::RowBowt& rbwt, std::string query, bool sa) {
 void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq) {
     std::cout << seq->name.s << " ";
     RowBowtRet ret = rb_get_range(rbwt, seq->seq.s, args.sam); // TODO: other options could also potentially trigger SA
-    std::cout << "(" << ret.r.first << "," << ret.r.second << "):\n";
+    std::cout << "(" << ret.r.first << "," << ret.r.second << "), count=" << ret.r.second-ret.r.first + 1 << "\n";
     if (args.sam) {
         // TODO: output SAM line to args.output + SAM
         rbwt.locs_at(ret.r, ret.ts, static_cast<uint64_t>(-1), ret.locs);
@@ -110,6 +110,10 @@ void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq) {
         } std::cout << "\n";
     }
     if (args.markers) {
+        rbwt.markers_at(ret.r.first, ret.markers);
+        ret.markers.clear();
+        rbwt.markers_at(ret.r.second, ret.markers);
+        ret.markers.clear();
         rbwt.markers_at(ret.r, ret.markers);
         std:: cout << "\tmarkers: ";
         if (!ret.markers.size()) cout << "no markers (consider building the marker array with a larger window size)";

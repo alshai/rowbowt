@@ -10,8 +10,8 @@ void print_help() {
     fprintf(stderr, "rb_build");
     fprintf(stderr, "Usage: rb_build [options] <index_prefix>\n");
     fprintf(stderr, "    --output_prefix/-o <basename>    output prefix\n");
-    fprintf(stderr, "    --tsa <basename>                 build toehold suffix array\n");
-    fprintf(stderr, "    --ma <basename>                  build marker array\n");
+    fprintf(stderr, "    --tsa/-s <basename>                 build toehold suffix array\n");
+    fprintf(stderr, "    --ma/-m <basename>                  build marker array\n");
     fprintf(stderr, "    <input_prefix>                   index prefix\n");
 }
 
