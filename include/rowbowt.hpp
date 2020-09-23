@@ -131,15 +131,54 @@ class RowBowt {
             , qend(e)
             , ssamp(ss)
         {}
+        LFData(range_t r, uint64_t s, uint64_t e)
+            : rn(r)
+            , qstart(s)
+            , qend(e)
+        {}
         range_t rn;
         uint64_t qstart;
         uint64_t qend;
         uint64_t ssamp;
     };
 
-    // Return BWT range along with a 'toehold' sample of the suffix array. This toehold can be used find neighboring
-    // values in the suffix array
-    std::vector<LFData>& find_range_w_toehold_greedy(const std::string& query, uint64_t min_length, std::vector<LFData>& lfdata) const {
+    // use a greedy scheme to get seeds from a query.
+    // start from rightmost position of seed, then LF-map until failure. If the resulting seed length >= min_length, add
+    // its range, query positions, & SA sample to results.
+    // Then, skip the mismatched base start procedure again from the next base over.
+    // TODO: do we want to start from the mismatched base?
+    std::vector<LFData>& get_seeds_greedy(const std::string& query, uint64_t min_length, std::vector<LFData>& lfdata) const {
+        lfdata.clear();
+        uint64_t m = query.size();
+        range_t range = full_range();
+        range_t prev_range = full_range();
+        uint64_t ei = m;
+        for (uint64_t i = 0; i < query.size(); ++i) {
+            range = LF(range, query[m-i-1]);
+            if (range.second < range.first) {
+                if (ei - (m-i) >= min_length) {
+                    // m - i is start because we shouldn't count the current position in query
+                    lfdata.push_back(LFData(prev_range, m-i, ei));
+                }
+                // reset everything, skip to next i
+                range = full_range();
+                prev_range = full_range();
+                ei = m-i-1; // this makes sure we skip current position in query for the next range
+            } else {
+                prev_range = range;
+            }
+        }
+        lfdata.push_back(LFData(prev_range, 0, ei));
+        // range and k can be used to find locations
+        return lfdata;
+    }
+
+    // use a greedy scheme to get seeds from a query.
+    // start from rightmost position of seed, then LF-map until failure. If the resulting seed length >= min_length, add
+    // its range, query positions, & SA sample to results.
+    // Then, skip the mismatched base start procedure again from the next base over.
+    // TODO: do we want to start from // mismatched base?
+    std::vector<LFData>& get_seeds_greedy_w_sample(const std::string& query, uint64_t min_length, std::vector<LFData>& lfdata) const {
         lfdata.clear();
         if (!tsa_) return lfdata;
         uint64_t m = query.size();
@@ -171,6 +210,11 @@ class RowBowt {
         return lfdata;
     }
 
+    std::vector<LFData> get_seeds_greedy_w_sample(const std::string& query, uint64_t min_length) const {
+        std::vector<LFData> lfs;
+        return get_seeds_greedy_w_sample(query, min_length, lfs);
+    }
+
     //
     // Return number of occurrences of query in the text
     ///
@@ -199,6 +243,81 @@ class RowBowt {
         return markers_at(r, markers);
     }
 
+    std::vector<MarkerT>& get_markers_greedy_seeding(const std::string query, uint64_t wsize, std::vector<MarkerT>& markers) {
+        markers.clear();
+        uint64_t m = query.size();
+        range_t prev_range = full_range(), range = full_range();
+        uint64_t window_ei = m, seed_ei = m;
+        std::vector<MarkerT> mbuf;
+        uint64_t i = 0;
+        for (i = 0; i < query.size(); ++i) {
+            range = LF(range, query[m-i-1]);
+            if (range.second < range.first) {
+                if (seed_ei-(m-i) >= wsize) { // check markers here if seed is large enough, regardless of window length
+                    mbuf = markers_at(prev_range, mbuf);
+                    markers.insert(markers.begin(), mbuf.begin(), mbuf.end());
+                } // then reset the seed
+                range = full_range();
+                prev_range = full_range();
+                seed_ei = m-i-1; // this makes sure we skip current position in query for the next range
+                window_ei = m-i-1;
+            } else { // deal with windows here
+                if (window_ei-(m-i) >= wsize) {
+                    mbuf = markers_at(range, mbuf);
+                    markers.insert(markers.begin(), mbuf.begin(), mbuf.end());
+                    window_ei = m-i; // current position is now window end
+                }
+                prev_range = range;
+            }
+        }
+        if (seed_ei-(m-i) >= wsize) {
+            mbuf = markers_at(range, mbuf);
+            markers.insert(markers.begin(), mbuf.begin(), mbuf.end());
+        }
+        // TODO: sort and remove duplicate markers
+        return markers;
+    }
+    
+    std::vector<MarkerT>& get_markers_simple_seeding(const std::string query, uint64_t wsize, std::vector<MarkerT>& markers) {
+        markers.clear();
+        if (query.size() < wsize) {
+            std::cerr << "warning: query (size=" << query.size() << ") is less than wsize (" << wsize << ")\n";
+            return markers;
+        }
+        uint64_t m = query.size();
+        range_t prev_range = full_range(), range = full_range();
+        uint64_t window_ei = m;
+        std::vector<MarkerT> mbuf;
+        for (uint64_t i = 0; i < m; ++i) {
+            range = LF(range, query[m-i-1]);
+            if (range.second < range.first) {
+                markers.clear(); // theoretically this query not in text, so no markers should be returned
+                return markers;
+            } else { // deal with windows here
+                if (window_ei-(m-i) >= wsize) {
+                    mbuf.clear();
+                    mbuf = markers_at(range, mbuf);
+                    markers.insert(markers.begin(), mbuf.begin(), mbuf.end());
+                    window_ei = m-i; // current position is now window end
+                }
+                prev_range = range;
+            }
+        }
+        // deal with last bit (regardless of window size)
+        // TODO: avoid redundancy here is query length % wsize == 0
+        mbuf.clear();
+        mbuf = markers_at(range, mbuf);
+        markers.insert(markers.begin(), mbuf.begin(), mbuf.end());
+        return markers;
+    }
+
+    std::vector<MarkerT> get_markers_simple_seeding(const std::string query, uint64_t wsize) {
+        std::vector<MarkerT> markers;
+        markers = get_markers_simple_seeding(query, wsize, markers);
+        return markers;
+    }
+
+
     std::pair<range_t, uint64_t> LF_w_loc(const range_t range, uint8_t c, uint64_t k) const {
         uint64_t nk;
         range_t nrange = LF(range, c);
@@ -221,24 +340,26 @@ class RowBowt {
         return tsa_->locate_range(range.first, range.second, k, max_hits, locs);
     }
 
-    std::vector<uint64_t>& locs_at(range_t range, uint64_t k, uint64_t max_hits) const {
+    std::vector<uint64_t> locs_at(range_t range, uint64_t k, uint64_t max_hits) const {
         std::vector<uint64_t> locs;
-        return tsa_->locate_range(range.first, range.second, k, max_hits, locs);
+        tsa_->locate_range(range.first, range.second, k, max_hits, locs);
+        return locs;
     }
 
     std::pair<std::string, uint64_t> resolve_offset(uint64_t i) const {
         return dl_->doc_and_offset_at(i);
     }
 
-    std::vector<uint64_t> locate_pattern(std::string s, uint64_t max_hits, std::vector<uint64_t>& locs) {
+    std::vector<uint64_t>& locate_pattern(std::string s, uint64_t max_hits, std::vector<uint64_t>& locs) {
         auto range_k = find_range_w_toehold(s);
-        return locs_at(range_k.first, range_k.second, max_hits, locs);
+        locs_at(range_k.first, range_k.second, max_hits, locs);
+        return locs;
     }
 
     std::vector<uint64_t>& locate_pattern_greedy_seeding(std::string s, uint64_t min_length, uint64_t max_hits, std::vector<uint64_t>& locs) {
         locs.clear();
         std::vector<LFData> lfs;
-        lfs = find_range_w_toehold_greedy(s, min_length, lfs);
+        lfs = get_seeds_greedy_w_sample(s, min_length, lfs);
         if (!lfs.size()) {
             return locs;
         }
@@ -266,6 +387,34 @@ class RowBowt {
         return locate_pattern_greedy_seeding(s, min_length, max_hits, locs);
     }
 
+    std::vector<uint64_t>& locate_from_longest_seed(uint64_t max_hits, const std::vector<LFData>& lfs, std::vector<uint64_t>& locs) {
+        locs.clear();
+        if (!lfs.size()) {
+            return locs;
+        }
+        LFData best_range;
+        uint64_t max_length = 0;
+        for (const auto& lfd: lfs) {
+            auto length = lfd.qend - lfd.qstart;
+            if (length > max_length) {
+                max_length = length;
+                best_range = lfd;
+                // std::cout << "best seed [" << lfd.rn.first << " " << lfd.rn.second << "), query [" << lfd.qstart << " " << lfd.qend << ") \n";
+            }
+        }
+        // locate for best lf
+        locs = locs_at(best_range.rn, best_range.ssamp, max_hits, locs);
+        // correction based on where the seed is in the read
+        for (uint64_t i = 0; i < locs.size(); ++i) {
+            locs[i] = locs[i] - best_range.qstart;
+        }
+        return locs;
+    }
+
+    std::vector<uint64_t> locate_from_longest_seed(uint64_t max_hits, const std::vector<LFData>& lfs) {
+        std::vector<uint64_t> locs;
+        return locate_from_longest_seed(max_hits, lfs, locs);
+    }
 
     /* we should expect the user to serialize during construction */
     /*
