@@ -2,12 +2,14 @@
 #define ROWBOWT_HPP
 
 #include <cstdlib>
+#include <ctime>
 #include <cinttypes>
 #include <iostream>
 #include <vector>
 #include <string>
 #include <tuple>
 #include <optional>
+#include <random>
 #include "marker_array.hpp"
 #include "toehold_sa.hpp"
 #include "rle_string.hpp"
@@ -23,7 +25,8 @@ class RowBowt {
 
     using range_t = std::pair<uint64_t, uint64_t>;
 
-    RowBowt() { }
+    RowBowt() { 
+    }
 
     RowBowt(rle_string_t& bwt
             ,const std::optional<MarkerArray<>>& ma
@@ -193,7 +196,10 @@ class RowBowt {
             if (range.second < range.first) {
                 if (ei - (m-i) >= min_length) {
                     // m - i is start because we shouldn't count the current position in query
+                    // std::cerr << "seed size: " << ei - (m-i) << " " << m-i << "-" << ei << std::endl;
                     lfdata.push_back(LFData(prev_range, m-i, ei, pk));
+                } else {
+                    // std::cerr << "(discarded) seed size: " << ei - (m-i) << " " << m-i << "-" << ei << std::endl;
                 }
                 // reset everything, skip to next i
                 k = first_k;
@@ -205,8 +211,15 @@ class RowBowt {
                 pk = k;
             }
         }
-        lfdata.push_back(LFData(prev_range, 0, ei, pk));
+        if (ei >= min_length) {
+            // std::cerr << "seed size: " << ei << " " << 0 << "-" << ei << std::endl;
+            lfdata.push_back(LFData(prev_range, 0, ei, pk));
+        }
+        // else {
+        //     std::cerr << "(discarded) seed size: " << ei << " " << 0 << "-" << ei << std::endl;
+        // }
         // range and k can be used to find locations
+        // result can be empty
         return lfdata;
     }
 
@@ -214,6 +227,22 @@ class RowBowt {
         std::vector<LFData> lfs;
         return get_seeds_greedy_w_sample(query, min_length, lfs);
     }
+
+    /*
+     * in progress.
+     * find seeds by partitioning read into min_length sized regions and picking random seeds from each region
+    std::vector<LFData> get_seeds_partitioned(const std::string& query, uint64_t min_length, std::vector<LFData>& lfs) const {
+        // parition the read
+        uint64_t partition_length = query.size() / min_length;
+        for (int i = 0; i < query.size(); i += partition_length) {
+            // pick a random position between i and i + parition_length
+            // apparently you're not supposed to use mod with rand()
+            // https://en.cppreference.com/w/cpp/numeric/random/rand
+            uint64_t start_pos = i + (std::rand()/((RAND_MAX + 1u)/ parition_length));
+            // do LF starting from start_pos
+        }
+    }
+    */
 
     //
     // Return number of occurrences of query in the text
@@ -270,6 +299,7 @@ class RowBowt {
                 prev_range = range;
             }
         }
+
         if (seed_ei-(m-i) >= wsize) {
             mbuf = markers_at(range, mbuf);
             markers.insert(markers.begin(), mbuf.begin(), mbuf.end());
@@ -277,7 +307,12 @@ class RowBowt {
         // TODO: sort and remove duplicate markers
         return markers;
     }
-    
+
+    std::vector<MarkerT>& get_markers_greedy_seeding(const std::string query, uint64_t wsize) {
+        std::vector<MarkerT> markers;
+        return get_markers_greedy_seeding(query, wsize, markers);
+    }
+
     std::vector<MarkerT>& get_markers_simple_seeding(const std::string query, uint64_t wsize, std::vector<MarkerT>& markers) {
         markers.clear();
         if (query.size() < wsize) {
@@ -399,9 +434,9 @@ class RowBowt {
             if (length > max_length) {
                 max_length = length;
                 best_range = lfd;
-                // std::cout << "best seed [" << lfd.rn.first << " " << lfd.rn.second << "), query [" << lfd.qstart << " " << lfd.qend << ") \n";
             }
         }
+        // std::cerr << "best seed [" << best_range.rn.first << " " << best_range.rn.second << "), query [" << best_range.qend-best_range.qstart <<  "] \n";
         // locate for best lf
         locs = locs_at(best_range.rn, best_range.ssamp, max_hits, locs);
         // correction based on where the seed is in the read
