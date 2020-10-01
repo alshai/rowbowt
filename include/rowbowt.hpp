@@ -25,7 +25,7 @@ class RowBowt {
 
     using range_t = std::pair<uint64_t, uint64_t>;
 
-    RowBowt() { 
+    RowBowt() {
     }
 
     RowBowt(rle_string_t& bwt
@@ -108,6 +108,7 @@ class RowBowt {
         return range;
     }
 
+    /*
     // Return BWT range along with a 'toehold' sample of the suffix array. This toehold can be used find neighboring
     // values in the suffix array
     std::pair<range_t, uint64_t> find_range_w_toehold(const std::string& query) const {
@@ -124,10 +125,17 @@ class RowBowt {
         // range and k can be used to find locations
         return std::make_pair(range, k);
     }
-
+    */
 
     struct LFData {
-        LFData() {};
+        LFData() {}
+        LFData(range_t r, uint64_t s, uint64_t e, uint64_t ss, std::vector<MarkerT>& m)
+            : rn(r)
+            , qstart(s)
+            , qend(e)
+            , ssamp(ss)
+            , markers(m)
+        {}
         LFData(range_t r, uint64_t s, uint64_t e, uint64_t ss)
             : rn(r)
             , qstart(s)
@@ -139,11 +147,36 @@ class RowBowt {
             , qstart(s)
             , qend(e)
         {}
-        range_t rn;
+        void clear() {
+            rn = {1,0};
+            qstart = 0;
+            qend = 0;
+            ssamp = 0;
+            markers.clear();
+        }
+        range_t rn = {1,0};
         uint64_t qstart;
         uint64_t qend;
         uint64_t ssamp;
+        std::vector<MarkerT> markers;
     };
+
+    LFData find_range_w_toehold(const std::string& query) const {
+        LFData lf;
+        if (!tsa_) return lf;
+        uint64_t m = query.size();
+        lf.rn = full_range();
+        lf.ssamp = tsa_->get_last_run_sample();
+        for (uint32_t i = 0; i < query.size(); ++i) {
+            std::tie(lf.rn, lf.ssamp) = LF_w_loc(lf.rn, query[m-i-1], lf.ssamp);
+            if (lf.rn.second < lf.rn.first) {
+                lf.clear();
+                return lf;
+            }
+        }
+        // lf.rn and lf.ssamp can be used to find locations
+        return lf;
+    }
 
     // use a greedy scheme to get seeds from a query.
     // start from rightmost position of seed, then LF-map until failure. If the resulting seed length >= min_length, add
@@ -272,7 +305,60 @@ class RowBowt {
         return markers_at(r, markers);
     }
 
-    std::vector<MarkerT>& get_markers_greedy_seeding(const std::string query, uint64_t wsize, std::vector<MarkerT>& markers) {
+    LFData& find_range_w_markers(const std::string query, uint64_t wsize, LFData& lf) const {
+        lf.clear();
+        if (!ma_) {
+            std::cerr << "warning: no marker array found!\n";
+            return lf;
+        }
+        lf.markers.clear();
+        if (query.size() < wsize) {
+            std::cerr << "warning: query (size=" << query.size() << ") is less than wsize (" << wsize << ")\n";
+            return lf;
+        }
+        lf.rn = full_range();
+        uint64_t m = query.size();
+        uint64_t window_ei = m;
+        std::vector<MarkerT> mbuf;
+        uint64_t i = 0;
+        size_t nqueries = 0;
+        for (i = 0; i < m; ++i) {
+            lf.rn = LF(lf.rn, query[m-i-1]);
+            if (lf.rn.second < lf.rn.first) {
+                lf.clear();
+                // std::cerr << "bad range at " << i << ": (" << lf.rn.first << ", " << lf.rn.second << ")\n";
+                return lf;
+            } else { // deal with windows here
+                if (window_ei-(m-i) >= wsize) {
+                    nqueries += 1;
+                    mbuf.clear();
+                    mbuf = markers_at(lf.rn, mbuf);
+                    lf.markers.insert(lf.markers.begin(), mbuf.begin(), mbuf.end());
+                    window_ei = m-i; // current position is now window end
+                }
+            }
+        }
+        // deal with last bit (regardless of window size)
+        // TODO: avoid redundancy here is query length % wsize == 0
+        if (lf.rn.second >= lf.rn.first && (m - 1) % wsize != 0) {
+            nqueries += 1;
+            mbuf.clear();
+            mbuf = markers_at(lf.rn, mbuf);
+            lf.markers.insert(lf.markers.begin(), mbuf.begin(), mbuf.end());
+        }
+        lf.qstart = 0;
+        lf.qend = m;
+        return lf;
+    }
+
+    LFData find_range_w_markers(const std::string query, uint64_t wsize) const {
+        LFData lf;
+        lf = find_range_w_markers(query, wsize, lf);
+        return lf;
+    }
+
+    // TODO: include counts/ranges in return value as well
+    std::vector<MarkerT>& get_markers_greedy_seeding(const std::string query, uint64_t wsize, std::vector<MarkerT>& markers) const {
         markers.clear();
         uint64_t m = query.size();
         range_t prev_range = full_range(), range = full_range();
@@ -308,48 +394,9 @@ class RowBowt {
         return markers;
     }
 
-    std::vector<MarkerT>& get_markers_greedy_seeding(const std::string query, uint64_t wsize) {
+    std::vector<MarkerT>& get_markers_greedy_seeding(const std::string query, uint64_t wsize) const {
         std::vector<MarkerT> markers;
         return get_markers_greedy_seeding(query, wsize, markers);
-    }
-
-    std::vector<MarkerT>& get_markers_simple_seeding(const std::string query, uint64_t wsize, std::vector<MarkerT>& markers) {
-        markers.clear();
-        if (query.size() < wsize) {
-            std::cerr << "warning: query (size=" << query.size() << ") is less than wsize (" << wsize << ")\n";
-            return markers;
-        }
-        uint64_t m = query.size();
-        range_t prev_range = full_range(), range = full_range();
-        uint64_t window_ei = m;
-        std::vector<MarkerT> mbuf;
-        for (uint64_t i = 0; i < m; ++i) {
-            range = LF(range, query[m-i-1]);
-            if (range.second < range.first) {
-                markers.clear(); // theoretically this query not in text, so no markers should be returned
-                return markers;
-            } else { // deal with windows here
-                if (window_ei-(m-i) >= wsize) {
-                    mbuf.clear();
-                    mbuf = markers_at(range, mbuf);
-                    markers.insert(markers.begin(), mbuf.begin(), mbuf.end());
-                    window_ei = m-i; // current position is now window end
-                }
-                prev_range = range;
-            }
-        }
-        // deal with last bit (regardless of window size)
-        // TODO: avoid redundancy here is query length % wsize == 0
-        mbuf.clear();
-        mbuf = markers_at(range, mbuf);
-        markers.insert(markers.begin(), mbuf.begin(), mbuf.end());
-        return markers;
-    }
-
-    std::vector<MarkerT> get_markers_simple_seeding(const std::string query, uint64_t wsize) {
-        std::vector<MarkerT> markers;
-        markers = get_markers_simple_seeding(query, wsize, markers);
-        return markers;
     }
 
 
@@ -371,6 +418,42 @@ class RowBowt {
         return {nrange, nk};
     }
 
+    std::vector<LFData>& find_range_w_toehold_chkpnts(const std::string& query, uint64_t wsize, std::vector<LFData>& lfs) const {
+        lfs.clear();
+        if (!tsa_) return lfs;
+        uint64_t m = query.size();
+        uint64_t window_ei = m;
+        uint64_t i = 0;
+        LFData lf;
+        lf.rn = full_range();
+        lf.ssamp = tsa_->get_last_run_sample();
+        for (i = 0; i < query.size(); ++i) {
+            std::tie(lf.rn, lf.ssamp) = LF_w_loc(lf.rn, query[m-i-1], lf.ssamp);
+            if (lf.rn.second < lf.rn.first) {
+                lfs.clear();
+                return lfs;
+            } else {
+                if (window_ei-(m-i) >= wsize) {
+                    lf.qstart = m-i;
+                    lf.qend = window_ei;
+                    lfs.push_back(LFData(lf));
+                    window_ei = m-i; // current position is now window end
+                }
+            }
+        }
+        if (lf.rn.second >= lf.rn.first && (m - 1) % wsize != 0) {
+            lf.qstart = 0;
+            lf.qend = m;
+            lfs.push_back(LFData(lf));
+        }
+        return lfs;
+    }
+
+    std::vector<LFData> find_range_w_toehold_chkpnts(const std::string& query, uint64_t wsize) const {
+        std::vector<LFData> lfs;
+        return find_range_w_toehold_chkpnts(query, wsize, lfs) ;
+    }
+
     std::vector<uint64_t>& locs_at(range_t range, uint64_t k, uint64_t max_hits, std::vector<uint64_t>& locs) const {
         return tsa_->locate_range(range.first, range.second, k, max_hits, locs);
     }
@@ -385,13 +468,13 @@ class RowBowt {
         return dl_->doc_and_offset_at(i);
     }
 
-    std::vector<uint64_t>& locate_pattern(std::string s, uint64_t max_hits, std::vector<uint64_t>& locs) {
-        auto range_k = find_range_w_toehold(s);
-        locs_at(range_k.first, range_k.second, max_hits, locs);
+    std::vector<uint64_t>& find_locs(std::string s, uint64_t max_hits, std::vector<uint64_t>& locs) const {
+        auto lf = find_range_w_toehold(s);
+        locs_at(lf.rn, lf.ssamp, max_hits, locs);
         return locs;
     }
 
-    std::vector<uint64_t>& locate_pattern_greedy_seeding(std::string s, uint64_t min_length, uint64_t max_hits, std::vector<uint64_t>& locs) {
+    std::vector<uint64_t>& find_locs_greedy_seeding(std::string s, uint64_t min_length, uint64_t max_hits, std::vector<uint64_t>& locs) const {
         locs.clear();
         std::vector<LFData> lfs;
         lfs = get_seeds_greedy_w_sample(s, min_length, lfs);
@@ -417,12 +500,12 @@ class RowBowt {
         return locs;
     }
 
-    std::vector<uint64_t> locate_pattern_greedy_seeding(std::string s, uint64_t min_length, uint64_t max_hits) {
+    std::vector<uint64_t> find_locs_greedy_seeding(std::string s, uint64_t min_length, uint64_t max_hits) const {
         std::vector<uint64_t> locs;
-        return locate_pattern_greedy_seeding(s, min_length, max_hits, locs);
+        return find_locs_greedy_seeding(s, min_length, max_hits, locs);
     }
 
-    std::vector<uint64_t>& locate_from_longest_seed(uint64_t max_hits, const std::vector<LFData>& lfs, std::vector<uint64_t>& locs) {
+    std::vector<uint64_t>& locate_from_longest_seed(uint64_t max_hits, const std::vector<LFData>& lfs, std::vector<uint64_t>& locs) const {
         locs.clear();
         if (!lfs.size()) {
             return locs;

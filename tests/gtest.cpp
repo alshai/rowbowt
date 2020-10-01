@@ -55,7 +55,7 @@ class SimpleSeedingTester : public testing::Test {
         std::vector<uint64_t> all_locs;
         for (auto ret: rets) {
             locs.clear();
-            rbwt.locs_at(ret.first, ret.second, static_cast<uint64_t>(-1), locs);
+            rbwt.locs_at(ret.rn, ret.ssamp, static_cast<uint64_t>(-1), locs);
             all_locs.insert(all_locs.end(), locs.begin(), locs.end());
         }
         // EXPECT_EQ(all_locs.size(), 6);
@@ -74,16 +74,16 @@ class SimpleSeedingTester : public testing::Test {
     }
 
    void CountTester() {
-       EXPECT_EQ(rets[0].first, rbwt::RowBowt::range_t(24279,24280));
-       EXPECT_EQ(rets[1].first, rbwt::RowBowt::range_t(24175,24175));
-       EXPECT_EQ(rets[2].first, rbwt::RowBowt::range_t(27430,27432));
-       EXPECT_EQ(rets[3].first, rbwt::RowBowt::range_t(27430,27432));
-       EXPECT_EQ(rets[4].first, rbwt::RowBowt::range_t(17409,17409));
-       EXPECT_EQ(rets[5].first, rbwt::RowBowt::range_t(17416,17417));
+       EXPECT_EQ(rets[0].rn, rbwt::RowBowt::range_t(24279,24280));
+       EXPECT_EQ(rets[1].rn, rbwt::RowBowt::range_t(24175,24175));
+       EXPECT_EQ(rets[2].rn, rbwt::RowBowt::range_t(27430,27432));
+       EXPECT_EQ(rets[3].rn, rbwt::RowBowt::range_t(27430,27432));
+       EXPECT_EQ(rets[4].rn, rbwt::RowBowt::range_t(17409,17409));
+       EXPECT_EQ(rets[5].rn, rbwt::RowBowt::range_t(17416,17417));
    }
 
     rbwt::RowBowt rbwt;
-    std::vector<std::pair<rbwt::RowBowt::range_t, uint64_t>> rets;
+    std::vector<rbwt::RowBowt::LFData> rets;
 };
 
 //
@@ -104,11 +104,11 @@ class SimpleMarkerTester : public testing::Test {
             exit(1);
         }
         kseq_t* seq(kseq_init(fq_fp));
-        rets.clear();
+        lfs.clear();
         int i = 0;
         while ((err = kseq_read(seq)) >= 0) {
-            auto markers = rbwt.get_markers_simple_seeding(seq->seq.s, 10);
-            rets.push_back(markers);
+            auto lf = rbwt.find_range_w_markers(seq->seq.s, 10);
+            lfs.push_back(lf);
             ++i;
         }
 
@@ -126,23 +126,20 @@ class SimpleMarkerTester : public testing::Test {
     }
 
     void MarkerTester() {
-        // for (auto m: rets) {
-        //     std::cerr << m.size() << std::endl;
-        // }
-        EXPECT_EQ(get_pos(rets[0][0]), 289);
-        EXPECT_EQ(get_allele(rets[0][0]), 0);
-        EXPECT_EQ(get_pos(rets[1][0]), 289);
-        EXPECT_EQ(get_allele(rets[1][0]), 1);
-        EXPECT_EQ(rets[2].size(), 0); // second two reads do not have markers
-        EXPECT_EQ(rets[3].size(), 0);
-        EXPECT_EQ(get_pos(rets[4][0]), 4650);
-        EXPECT_EQ(get_allele(rets[4][0]), 0);
-        EXPECT_EQ(get_pos(rets[5][0]), 4650);
-        EXPECT_EQ(get_allele(rets[5][0]), 1);
+        EXPECT_EQ(get_pos(lfs[0].markers[0]), 289);
+        EXPECT_EQ(get_allele(lfs[0].markers[0]), 0);
+        EXPECT_EQ(get_pos(lfs[1].markers[0]), 289);
+        EXPECT_EQ(get_allele(lfs[1].markers[0]), 1);
+        EXPECT_EQ(lfs[2].markers.size(), 0); // second two reads do not have markers
+        EXPECT_EQ(lfs[3].markers.size(), 0);
+        EXPECT_EQ(get_pos(lfs[4].markers[0]), 4650);
+        EXPECT_EQ(get_allele(lfs[4].markers[0]), 0);
+        EXPECT_EQ(get_pos(lfs[5].markers[0]), 4650);
+        EXPECT_EQ(get_allele(lfs[5].markers[0]), 1);
     }
 
     rbwt::RowBowt rbwt;
-    std::vector<std::vector<MarkerT>> rets;
+    std::vector<rbwt::RowBowt::LFData> lfs;
 };
 
 class GreedySeedingTester : public testing::Test {
