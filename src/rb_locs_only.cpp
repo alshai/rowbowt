@@ -15,6 +15,7 @@ struct RbAlignArgs {
     std::string inpre = "";
     std::string fastq_fname = "";
     std::string outpre = "";
+    size_t max_hits = -1;
     size_t wsize = 10;
 };
 
@@ -33,12 +34,16 @@ RbAlignArgs parse_args(int argc, char** argv) {
     static struct option long_options[] {
         {"wsize", required_argument, 0, 'w'},
         {"output_prefix", required_argument, 0, 'o'},
+        {"max-hits", required_argument, 0, 'm'},
     };
     int long_index = 0;
-    while((c = getopt_long(argc, argv, "o:w:h", long_options, &long_index)) != -1) {
+    while((c = getopt_long(argc, argv, "o:w:m:h", long_options, &long_index)) != -1) {
         switch (c) {
             case 'w':
                 args.wsize = std::atol(optarg);
+                break;
+            case 'm':
+                args.max_hits = std::atol(optarg);
                 break;
             case 'o':
                 args.outpre = optarg;
@@ -68,17 +73,22 @@ RbAlignArgs parse_args(int argc, char** argv) {
 }
 
 
-void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq, std::vector<uint64_t>& locs) {
+void rb_report(const rbwt::RowBowt& rbwt, const rle_window_arr<>& midx, const RbAlignArgs args, kseq_t* seq, std::vector<uint64_t>& locs) {
     locs.clear();
-    locs = rbwt.find_locs_greedy_seeding(seq->seq.s, args.wsize, -1, locs);
+    locs = rbwt.find_locs_greedy_seeding(seq->seq.s, args.wsize, args.max_hits, locs);
     std::cout << seq->name.s;
     if (!locs.size()) {
         std::cout << "\n";
         return;
+    } else {
+        std::cout << " " << locs.size() << " ";
     }
     for (auto l: locs) {
         auto pair = rbwt.resolve_offset(l);
-        std::cout << " " << l << "/" << pair.first << ":" << pair.second;
+        auto ms = midx.at_range(l, l+seq->seq.l-1);
+        for (auto m: ms) {
+            std::cout << " " << get_pos(m) << "/" << static_cast<uint64_t>(get_allele(m));
+        }
     } std::cout << "\n";
 }
 
@@ -91,6 +101,9 @@ rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
 
 void rb_locs_all(RbAlignArgs args) {
     rbwt::RowBowt rbwt(load_rbwt(args));
+    rle_window_arr<> midx;
+    std::ifstream midx_ifs(args.inpre + ".midx"); 
+    midx.load(midx_ifs);
     int err, nreads = 0, noccs = 0;
     gzFile fq_fp(gzopen(args.fastq_fname.data(), "r"));
     if (fq_fp == NULL) {
@@ -100,7 +113,7 @@ void rb_locs_all(RbAlignArgs args) {
     kseq_t* seq(kseq_init(fq_fp));
     std::vector<uint64_t> locs;
     while ((err = kseq_read(seq)) >= 0) {
-        rb_report(rbwt, args, seq, locs);
+        rb_report(rbwt, midx, args, seq, locs);
     }
     // error checking here
     switch(err) {
