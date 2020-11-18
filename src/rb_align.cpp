@@ -86,8 +86,8 @@ RowBowtRet rb_get_range(const rbwt::RowBowt& rbwt, std::string query, bool sa) {
     RowBowtRet ret;
     if (sa)  {
         auto range = rbwt.find_range_w_toehold(query);
-        ret.r = range.first;
-        ret.ts = range.second;
+        ret.r = range.rn;
+        ret.ts = range.ssamp;
     }
     else {
         ret.r = rbwt.find_range(query);
