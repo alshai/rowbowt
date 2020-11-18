@@ -358,8 +358,8 @@ class RowBowt {
     }
 
     // TODO: include counts/ranges in return value as well
-    std::vector<MarkerT>& get_markers_greedy_seeding(const std::string query, uint64_t wsize, std::vector<MarkerT>& markers) const {
-        markers.clear();
+    template<typename F>
+    void get_markers_greedy_seeding(const std::string query, uint64_t wsize, uint64_t max_range, F fn) const {
         uint64_t m = query.size();
         range_t prev_range = full_range(), range = full_range();
         uint64_t window_ei = m, seed_ei = m;
@@ -367,38 +367,46 @@ class RowBowt {
         uint64_t i = 0;
         for (i = 0; i < query.size(); ++i) {
             range = LF(range, query[m-i-1]);
-            if (range.second < range.first) {
+            if (range.second < range.first) { // this is when the seed fails
                 if (seed_ei-(m-i) >= wsize) { // check markers here if seed is large enough, regardless of window length
-                    mbuf = markers_at(prev_range, mbuf);
-                    markers.insert(markers.begin(), mbuf.begin(), mbuf.end());
+                    mbuf.clear();
+                    if (prev_range.second - prev_range.first + 1 > max_range) {
+                        // std::cerr << "warning, range too large (>" << max_range << ") for seed at [" << m-i << "," << window_ei-1 << "]. Skipping marker query here\n";
+                    } else {
+                        mbuf = markers_at(prev_range, mbuf);
+                    }
+                    fn(prev_range, std::make_pair(m-i,window_ei-1),mbuf);
                 } // then reset the seed
                 range = full_range();
                 prev_range = full_range();
                 seed_ei = m-i-1; // this makes sure we skip current position in query for the next range
                 window_ei = m-i-1;
-            } else { // deal with windows here
+            } else { // this is for each window
                 if (window_ei-(m-i) >= wsize) {
-                    mbuf = markers_at(range, mbuf);
-                    markers.insert(markers.begin(), mbuf.begin(), mbuf.end());
+                    mbuf.clear();
+                    if (range.second - range.first + 1 > max_range) {
+                        // std::cerr << "warning, range too large (>" << max_range << ") for query range at [" << m-i << "," << window_ei-1 << "]. Skipping marker query here\n";
+                    } else {
+                        mbuf = markers_at(prev_range, mbuf);
+                    }
+                    fn(prev_range, std::make_pair(m-i,window_ei-1),mbuf);
                     window_ei = m-i; // current position is now window end
                 }
                 prev_range = range;
             }
         }
 
+        // this is when the whole read is done and a seed hasn't finished yet
         if (seed_ei-(m-i) >= wsize) {
-            mbuf = markers_at(range, mbuf);
-            markers.insert(markers.begin(), mbuf.begin(), mbuf.end());
+            mbuf.clear();
+            if (range.second - range.first + 1 > max_range) {
+                // std::cerr << "warning, range too large (>" << max_range << ") for query range at [" << m-i << "," << window_ei-1 << "]. Skipping marker query here\n";
+            } else {
+                mbuf = markers_at(range, mbuf);
+            }
+            fn(range, std::make_pair(m-i,window_ei-1),mbuf);
         }
-        // TODO: sort and remove duplicate markers
-        return markers;
     }
-
-    std::vector<MarkerT>& get_markers_greedy_seeding(const std::string query, uint64_t wsize) const {
-        std::vector<MarkerT> markers;
-        return get_markers_greedy_seeding(query, wsize, markers);
-    }
-
 
     std::pair<range_t, uint64_t> LF_w_loc(const range_t range, uint8_t c, uint64_t k) const {
         uint64_t nk;
