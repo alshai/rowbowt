@@ -77,19 +77,14 @@ void rb_report(const rbwt::RowBowt& rbwt, const rle_window_arr<>& midx, const Rb
     locs.clear();
     locs = rbwt.find_locs_greedy_seeding(seq->seq.s, args.wsize, args.max_hits, locs);
     std::cout << seq->name.s;
-    if (!locs.size()) {
-        std::cout << "\n";
-        return;
-    } else {
-        std::cout << " " << locs.size() << " ";
-    }
     for (auto l: locs) {
         auto pair = rbwt.resolve_offset(l);
         auto ms = midx.at_range(l, l+seq->seq.l-1);
         for (auto m: ms) {
             std::cout << " " << get_pos(m) << "/" << static_cast<uint64_t>(get_allele(m));
         }
-    } std::cout << "\n";
+    } 
+    std::cout << "\n";
 }
 
 rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
