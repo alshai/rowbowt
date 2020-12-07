@@ -107,7 +107,7 @@ class SimpleMarkerTester : public testing::Test {
         lfs.clear();
         int i = 0;
         while ((err = kseq_read(seq)) >= 0) {
-            auto lf = rbwt.find_range_w_markers(seq->seq.s, 10);
+            auto lf = rbwt.find_range_w_markers(seq->seq.s, 10, -1);
             lfs.push_back(lf);
             ++i;
         }
@@ -229,7 +229,17 @@ class GreedySeedingMarkerTester : public testing::Test {
         rets.clear();
         int i = 0;
         while ((err = kseq_read(seq)) >= 0) {
-            auto ret = rbwt.get_markers_greedy_seeding(seq->seq.s, 10);
+            std::vector<MarkerT> ret;
+            ret.clear();
+            auto fn = [&](rbwt::RowBowt::range_t p, std::pair<size_t, size_t> q, std::vector<MarkerT> mbuf) {
+                std::cerr << " [" << p.second - p.first + 1 << "]" << ":[" << q.first << "-" << q.second << "]";
+                if (mbuf.size()) {
+                    for (auto m: mbuf) {
+                        ret.push_back(m);
+                    }
+                } 
+            };
+            rbwt.get_markers_greedy_seeding(seq->seq.s, 10, 100, fn);
             rets.push_back(ret);
         }
 
