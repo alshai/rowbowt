@@ -18,6 +18,7 @@ struct RbAlignArgs {
     int inexact = 0;
     size_t wsize = 10;
     size_t max_range = 1000;
+    size_t min_range = 0;
 };
 
 void print_help() {
@@ -27,6 +28,7 @@ void print_help() {
     fprintf(stderr, "    --inexact                                     \n");
     fprintf(stderr, "    --wsize            <int>         window size for performing marker queries along read\n");
     fprintf(stderr, "    --max-range        <int>         range-size upper threshold for performing marker queries\n");
+    fprintf(stderr, "    --min-range        <int>         range-size upper threshold for performing marker queries\n");
     fprintf(stderr, "    <input_prefix>                   index prefix\n");
     fprintf(stderr, "    <input_fastq>                    input fastq\n");
 }
@@ -39,7 +41,8 @@ RbAlignArgs parse_args(int argc, char** argv) {
         {"wsize", required_argument, 0, 'w'},
         {"output_prefix", required_argument, 0, 'o'},
         {"inexact", no_argument, &args.inexact, 1},
-        {"max-range", required_argument, 0, 'r'}
+        {"max-range", required_argument, 0, 'r'},
+        {"min-range", required_argument, 0, 'm'}
     };
     int long_index = 0;
     while((c = getopt_long(argc, argv, "o:w:r:h", long_options, &long_index)) != -1) {
@@ -49,6 +52,9 @@ RbAlignArgs parse_args(int argc, char** argv) {
                 break;
             case 'r':
                 args.max_range = std::atol(optarg);
+                break;
+            case 'm':
+                args.min_range = std::atol(optarg);
                 break;
             case 'w':
                 args.wsize = std::atol(optarg);
@@ -89,7 +95,7 @@ void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq, s
     markers.clear();
     auto fn = [&](rbwt::RowBowt::range_t p, std::pair<size_t, size_t> q, std::vector<MarkerT> mbuf) {
         std::cerr << " [" << p.second - p.first + 1 << "]" << ":[" << q.first << "-" << q.second << "]";
-        if (mbuf.size()) {
+        if (p.second - p.first + 1 >= args.min_range && mbuf.size()) {
             for (auto m: mbuf) {
                 std::cerr << ":" << get_pos(m) << "/" << static_cast<int>(get_allele(m));
                 markers.push_back(m);
