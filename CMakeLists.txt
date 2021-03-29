@@ -19,7 +19,7 @@ include_directories(${PROJECT_SOURCE_DIR}/sdsl-lite/include)
 include_directories(${PROJECT_SOURCE_DIR}/pfbwt-f/include)
 
 add_subdirectory(pfbwt-f)
-add_subdirectory(${PROJECT_SOURCE_DIR}/tests)
+# add_subdirectory(${PROJECT_SOURCE_DIR}/tests)
 
 message("Building in ${CMAKE_BUILD_TYPE} mode")
 
