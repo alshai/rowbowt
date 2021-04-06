@@ -117,8 +117,7 @@ void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq, s
 }
 
 rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
-    rbwt::LoadRbwtFlag flag;
-    flag = flag | rbwt::LoadRbwtFlag::MA;
+    auto flag = rbwt::LoadRbwtFlag::MA;
     rbwt::RowBowt rbwt(rbwt::load_rowbowt(args.inpre, flag));
     return rbwt;
 }
