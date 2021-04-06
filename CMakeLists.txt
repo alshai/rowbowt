@@ -7,8 +7,13 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 project (rowbowt)
+
+find_library(LIB_HTS hts)
+set(CMAKE_CXX_STANDARD 17)
+
+
 enable_testing()
-set(CMAKE_CXX_FLAGS "--std=c++17")
+set(CMAKE_CXX_FLAGS "--std=c++17 -D__STDC_FORMAT_MACROS")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb -g -march=native")
 set(CMAKE_CXX_FLAGS_RELEASE "-g -Ofast -fstrict-aliasing -march=native -DNDEBUG")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-g -ggdb -Ofast -fstrict-aliasing -march=native")
