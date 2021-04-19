@@ -12,7 +12,16 @@ find_library(LIB_HTS hts)
 set(CMAKE_CXX_STANDARD 17)
 
 
+set(CMAKE_CXX_STANDARD 17)
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/6c5c4554ac218a8e19168edc121b1ad232015185.zip
+)
+FetchContent_MakeAvailable(googletest)
+include(CTest)
 enable_testing()
+
 set(CMAKE_CXX_FLAGS "--std=c++17 -D__STDC_FORMAT_MACROS")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb -g -march=native")
 set(CMAKE_CXX_FLAGS_RELEASE "-g -Ofast -fstrict-aliasing -march=native -DNDEBUG")
@@ -33,9 +42,15 @@ add_executable(rb_align src/rb_align.cpp)
 add_executable(rb_markers src/rb_markers.cpp)
 add_executable(rb_locs src/rb_markers_tsa.cpp)
 add_executable(build_midx src/build_midx.cpp)
-TARGET_LINK_LIBRARIES(rb_align z)
-TARGET_LINK_LIBRARIES(rb_markers z)
-TARGET_LINK_LIBRARIES(rb_locs z)
+add_executable(rb_tests tests/gtest.cpp)
+target_link_libraries(rb_align z)
+target_link_libraries(rb_markers z)
+target_link_libraries(rb_locs z)
+target_link_libraries(rb_tests z gtest_main)
+
+include(GoogleTest)
+gtest_discover_tests(rb_tests)
+include(CPack)
 
 install(TARGETS rb_build DESTINATION bin)
 install(TARGETS rb_align DESTINATION bin)
