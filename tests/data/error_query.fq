@@ -1,0 +1,12 @@
+>r1.ref has 1 marker, 1 error, return 0 markers, return loc
+TATCGCCGCGATCTCCAACT
+>r1.sample0.0 has 1 marker, 1 error, return 1 marker, return loc
+TATATCCGCGATATCCAACT
+>r2.ref no marker, error
+TGGGCTCAAAACCATGGGAT
+>r2.sample0.0 no marker, error
+TGGGCTCAAAACCATGGGAT
+>r3.ref has 1 marker, 2 error, return 1 marker, return 0 loc bc error carries through
+GCCGGCAAGTCATGTGTAAT
+>r3.sample0.0 has 1 marker, 2 error, return 0 markers, return loc
+GCCGGCTAGGCATGTCTAAT
