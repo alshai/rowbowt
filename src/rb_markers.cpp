@@ -83,6 +83,36 @@ RbAlignArgs parse_args(int argc, char** argv) {
     return args;
 }
 
+char comp_tab[] = {
+    0,    1,    2,    3,    4,    5,    6,    7,    8,    9,    10,   11,   12,   13,   14,   15,
+    16,   17,   18,   19,   20,   21,   22,   23,   24,   25,   26,   27,   28,   29,   30,   31,
+    32,   33,   34,   35,   36,   37,   38,   39,   40,   41,   42,   43,   44,   45,   46,   47,
+    48,   49,   50,   51,   52,   53,   54,   55,   56,   57,   58,   59,   60,   61,   62,   63,
+    64,   'T',  'V',  'G',  'H',  'E',  'F',  'C',  'D',  'I',  'J',  'M',  'L',  'K',  'N',  'O',
+    'P',  'Q',  'Y',  'S',  'A',  'A',  'B',  'W',  'X',  'R',  'Z',  91,   92,   93,   94,   95,
+    64,   't',  'v',  'g',  'h',  'e',  'f',  'c',  'd',  'i',  'j',  'm',  'l',  'k',  'n',  'o',
+    'p',  'q',  'y',  's',  'a',  'a',  'b',  'w',  'x',  'r',  'z',  123,  124,  125,  126,  127
+};
+
+/* code copied from seqtk
+ * https://github.com/lh3/seqtk/blob/7c04ce7898ad5909bd309c6ba3cd9c3bd0651f0e/seqtk.c#L1464
+ */
+void revc_in_place(kseq_t* seq) {
+    int c0, c1;
+    for (size_t i = 0; i < seq->seq.l>>1; ++i) { // reverse complement sequence
+        c0 = comp_tab[(int)seq->seq.s[i]];
+        c1 = comp_tab[(int)seq->seq.s[seq->seq.l - 1 - i]];
+        seq->seq.s[i] = c1;
+        seq->seq.s[seq->seq.l - 1 - i] = c0;
+    }
+    if (seq->seq.l & 1) // complement the remaining base
+        seq->seq.s[seq->seq.l>>1] = comp_tab[(int)seq->seq.s[seq->seq.l>>1]];
+    if (seq->qual.l) {
+        for (size_t i = 0; i < seq->seq.l>>1; ++i) // reverse quality
+            c0 = seq->qual.s[i], seq->qual.s[i] = seq->qual.s[seq->qual.l - 1 - i], seq->qual.s[seq->qual.l - 1 - i] = c0;
+    }
+}
+
 
 struct RowBowtRet {
     rbwt::RowBowt::range_t r;
@@ -97,13 +127,15 @@ void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq, s
         std::cerr << " [" << p.second - p.first + 1 << "]" << ":[" << q.first << "-" << q.second << "]";
         if (p.second - p.first + 1 >= args.min_range && mbuf.size()) {
             for (auto m: mbuf) {
-                std::cerr << ":" << get_pos(m) << "/" << static_cast<int>(get_allele(m));
+                std::cerr << ":" << get_seq(m) << "/" <<  get_pos(m) << "/" << static_cast<int>(get_allele(m));
                 markers.push_back(m);
             }
-        } 
+        }
     };
     std::cout << seq->name.s;
     std::cerr << seq->name.s;
+    rbwt.get_markers_greedy_seeding(seq->seq.s, args.wsize, args.max_range, fn);
+    revc_in_place(seq);
     rbwt.get_markers_greedy_seeding(seq->seq.s, args.wsize, args.max_range, fn);
     std::sort(markers.begin(), markers.end(), [](MarkerT a, MarkerT b) {
             return get_pos(a) < get_pos(b);
@@ -111,7 +143,7 @@ void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq, s
     markers.erase(std::unique(markers.begin(), markers.end()), markers.end());
     for (auto m: markers) {
         std::cout << " " << get_pos(m) << "/" << static_cast<int>(get_allele(m));
-    } 
+    }
     std::cerr << "\n";
     std::cout << "\n";
 }
@@ -133,11 +165,7 @@ void rb_markers_all(RbAlignArgs args) {
     kseq_t* seq(kseq_init(fq_fp));
     std::vector<MarkerT> markers;
     while ((err = kseq_read(seq)) >= 0) {
-        if (!args.inexact) {
-            rb_report(rbwt, args, seq, markers);
-        } else {
-            rb_report(rbwt, args, seq, markers);
-        }
+        rb_report(rbwt, args, seq, markers);
     }
     // error checking here
     switch(err) {

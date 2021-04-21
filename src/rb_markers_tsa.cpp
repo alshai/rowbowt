@@ -81,7 +81,7 @@ void rb_report(const rbwt::RowBowt& rbwt, const rle_window_arr<>& midx, const Rb
         auto pair = rbwt.resolve_offset(l);
         auto ms = midx.at_range(l, l+seq->seq.l-1);
         for (auto m: ms) {
-            std::cout << " " << get_pos(m) << "/" << static_cast<uint64_t>(get_allele(m));
+            std::cout << " " << get_seq(m) << "/" << get_pos(m) << "/" << static_cast<uint64_t>(get_allele(m));
         }
     } 
     std::cout << "\n";
