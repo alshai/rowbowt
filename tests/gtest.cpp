@@ -264,6 +264,61 @@ class GreedySeedingMarkerTester : public testing::Test {
     std::vector<std::vector<MarkerT>> rets;
 };
 
+class LMemMarkerTester : public testing::Test {
+    protected:
+    void SetUp() override {
+        std::string fa("/home/taher/rowbowt/tests/data/small.fa");
+        std::string fq("/home/taher/rowbowt/tests/data/error_query.fq");
+        rbwt::LoadRbwtFlag flag;
+        flag = rbwt::LoadRbwtFlag::MA;
+        rbwt = rbwt::load_rowbowt(fa, flag);
+        int err, nreads = 0, noccs = 0;
+        gzFile fq_fp(gzopen(fq.data(), "r"));
+        if (fq_fp == NULL) {
+            fprintf(stderr, "invalid file\n");
+            exit(1);
+        }
+        kseq_t* seq(kseq_init(fq_fp));
+        rets.clear();
+        int i = 0;
+        while ((err = kseq_read(seq)) >= 0) {
+            std::vector<MarkerT> ret;
+            ret.clear();
+            std::cerr << seq->name.s;
+            auto fn = [&](rbwt::RowBowt::range_t p, std::pair<size_t, size_t> q, std::vector<MarkerT> mbuf) {
+                std::cerr << " [" << p.second - p.first + 1 << "]" << ":[" << q.first << "-" << q.second << "]";
+                if (mbuf.size()) {
+                    for (auto m: mbuf) {
+                        ret.push_back(m);
+                    }
+                }
+            };
+            rbwt.get_markers_lmems(seq->seq.s, 10, 100, fn);
+            std::cerr << std::endl;
+            rets.push_back(ret);
+        }
+
+        // error checking here
+        switch(err) {
+            case -2:
+                fprintf(stderr, "ERROR: truncated quality string\n");
+                exit(1); break;
+            case -3:
+                fprintf(stderr, "ERROR: error reading stream\n");
+                exit(1); break;
+            default:
+                break;
+        }
+    }
+
+    void MarkerTester() {
+        std::cerr << "todo: properly generate truth set for this test\n" << std::endl;
+    }
+
+    rbwt::RowBowt rbwt;
+    std::vector<std::vector<MarkerT>> rets;
+};
+
 }
 
 TEST_F(SimpleSeedingTester, Count) {
@@ -283,5 +338,9 @@ TEST_F(GreedySeedingTester, Locate) {
 }
 
 TEST_F(GreedySeedingMarkerTester, Marker) {
+    MarkerTester();
+}
+
+TEST_F(LMemMarkerTester, Marker) {
     MarkerTester();
 }

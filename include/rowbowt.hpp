@@ -355,65 +355,43 @@ class RowBowt {
         return lf;
     }
 
-    LFData find_lmem_w_markers(const std::string query, uint64_t qend, uint64_t wsize, uint64_t max_range) const {
-        LFData lf;
-        lf.clear();
-        if (!ma_) {
-            std::cerr << "warning: no marker array found!\n";
-            return lf;
-        }
-        lf.markers.clear();
-        if (query.size() < wsize) {
-            std::cerr << "warning: query (size=" << query.size() << ") is less than wsize (" << wsize << ")\n";
-            return lf;
-        }
-        lf.rn = full_range();
-        lf.qend = qend;
-        lf.qstart = qend + 1; // if qstart > qend, we know that there's no valid alignment
-        uint64_t m = qend;
-        uint64_t window_ei = m;
-        std::vector<MarkerT> mbuf;
-        uint64_t i = 0;
-        size_t nqueries = 0;
-        range_t rn;
-        for (i = 0; i < m; ++i) {
-            rn = LF(lf.rn, query[m-i-1]);
-            if (rn.second < rn.first) {
-                break;
-            } else { // deal with windows here
-                lf.rn = rn;
-                lf.qstart = m - i - 1;
-                if (window_ei-(m-i) >= wsize) {
-                    nqueries += 1;
-                    mbuf.clear();
-                    if (lf.rn.second - lf.rn.first + 1<= max_range) {
-                        mbuf = markers_at(lf.rn, mbuf);
-                        lf.markers.insert(lf.markers.begin(), mbuf.begin(), mbuf.end());
+    // TODO: include counts/ranges in return value as well
+    template<typename F>
+    void get_markers_lmems(const std::string query, uint64_t wsize, uint64_t max_range, F fn) const {
+        uint64_t m = query.size();
+        for (int j = 0; j < query.size(); ++j) {
+            range_t prev_range = full_range(), range = full_range();
+            uint64_t window_ei = m-j, seed_ei = m-j;
+            std::vector<MarkerT> mbuf;
+            uint64_t i = 0;
+            auto update_mbuf = [&](range_t r) {
+                mbuf.clear();
+                if (r.second - r.first + 1 <= max_range) {
+                    mbuf = markers_at(r, mbuf);
+                }
+                fn(r, std::make_pair(m-i,seed_ei-1), mbuf);
+            };
+            for (i = j; i < query.size(); ++i) {
+                range = LF(range, query[m-i-1]);
+                if (range.second < range.first) { // this is when the seed fails
+                    if (seed_ei-(m-i) >= wsize) { // check markers here if seed is large enough, regardless of window length
+                        update_mbuf(prev_range);
                     }
-                    window_ei = m-i; // current position is now window end
+                    break;
+                } else { // this is for each window
+                    if (window_ei-(m-i) >= wsize) {
+                        update_mbuf(range);
+                        window_ei = m-i; // current position is now window end
+                    }
+                    prev_range = range;
                 }
             }
-        }
-        // deal with last bit (regardless of window size)
-        // TODO: avoid redundancy here is query length % wsize == 0
-        if (lf.rn.second >= lf.rn.first && (lf.qend - 1) % wsize != 0) {
-            mbuf.clear();
-            if (lf.rn.second - lf.rn.first + 1 <= max_range) {
-                mbuf = markers_at(lf.rn, mbuf);
-                lf.markers.insert(lf.markers.begin(), mbuf.begin(), mbuf.end());
+            std::cerr << m-j << ": " << prev_range.second-prev_range.first+1 << std::endl;
+            // this is when the whole read is done and a seed hasn't finished yet
+            if (seed_ei-(m-i) >= wsize) {
+                update_mbuf(range);
             }
         }
-        lf.qstart = 0;
-        lf.qend = m;
-        return lf;
-    }
-
-    std::vector<LFData> find_all_lmems_w_markers(const std::string query, uint64_t wsize, uint64_t max_range, std::vector<LFData>& lfs) const {
-        lfs.clear();
-        for (uint i = 0; i < query.size() - wsize + 1; ++i) {
-            lfs.push_back(find_lmem_w_markers(query, query.size() - i, wsize, max_range));
-        }
-        return lfs;
     }
 
     // TODO: include counts/ranges in return value as well
