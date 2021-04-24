@@ -14,6 +14,7 @@
 #include "toehold_sa.hpp"
 #include "rle_string.hpp"
 #include "doclist.hpp"
+#include "ftab.hpp"
 
 namespace rbwt {
 
@@ -32,12 +33,14 @@ class RowBowt {
             ,const std::optional<MarkerArray<>>& ma
             ,const std::optional<ToeholdSA>& tsa
             ,const std::optional<DocList>& dl
+            ,const std::optional<FTab>& ft
             )
         : bwt_(bwt)
         , f_(build_f(bwt))
         , ma_(ma)
         , tsa_(tsa)
         , dl_(dl)
+        , ft_(ft)
     {
         r_ = bwt_.number_of_runs();
     }
@@ -102,9 +105,19 @@ class RowBowt {
     // Return BWT range of query string
     range_t find_range(const std::string& query) const {
         range_t range = full_range();
-        uint64_t m = query.size();
-        for(uint64_t i=0;i<m and range.second>=range.first;++i)
+        size_t i = 0;
+        if (ft_) {
+            range = ft_->at(query.substr(query.size()-ft_->get_k(), ft_->get_k()));
+            if (range.first <= range.second) {
+                i = ft_->get_k();
+            } else {
+                range = full_range();
+            }
+        }
+        size_t m = query.size();
+        for(i; i < m && range.second>=range.first; ++i) {
             range = LF(range,query[m-i-1]);
+        }
         return range;
     }
 
@@ -608,6 +621,27 @@ class RowBowt {
     const std::optional<MarkerArray<>>& get_marker_array()   const {return ma_;}
     // const std::optional<DocList>&       get_doc_list()       const {return docs_;}
 
+    // kmer generation code from from heng li:
+    // https://www.biostars.org/p/18096/#18107
+    FTab build_ftab(size_t k = 10) {
+        int i;
+        unsigned long long x, y;
+        std::string kmer(k, ' ');
+        kmer.clear();
+        FTab ftab;
+        for (x = 0; x < 1ULL<<(2*k); ++x) {
+            for (i = 0, y = x; i < k; ++i, y >>= 2) {
+                kmer += "ACGT"[y&3];
+            }
+            auto range = find_range(kmer);
+            if (range.first <= range.second) {
+                ftab[kmer] = range;
+            }
+            kmer.clear();
+        }
+        return ftab;
+    }
+
     private:
 
     std::vector<uint64_t> build_f(ri::rle_string_sd& bwt) const {
@@ -633,6 +667,7 @@ class RowBowt {
     std::optional<ToeholdSA> tsa_;
     std::optional<MarkerArray<>> ma_;
     std::optional<DocList> dl_;
+    std::optional<FTab> ft_;
     uint64_t r_;
 };
 }

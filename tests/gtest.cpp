@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <getopt.h>
 #include <string>
+#include <tuple>
 extern "C" {
 #include <zlib.h>
 #ifndef AC_KSEQ_H
@@ -319,6 +320,50 @@ class LMemMarkerTester : public testing::Test {
     std::vector<std::vector<MarkerT>> rets;
 };
 
+class FTabTester  : public testing::Test {
+    protected:
+    void SetUp() override {
+        std::string fa("/home/taher/rowbowt/tests/data/small.fa");
+        rbwt::LoadRbwtFlag flag;
+        flag = rbwt::LoadRbwtFlag::FT;
+        rbwt = rbwt::load_rowbowt(fa, flag);
+
+    }
+
+    void FTabTest10mer() {
+        std::pair<size_t, size_t> rn;
+        rn = rbwt.find_range("TTCGTCGTAA");
+        EXPECT_EQ(rn.first, 28942);
+        EXPECT_EQ( rn.second, 28944);
+        rn = rbwt.find_range("CCGCGGACAT");
+        EXPECT_EQ(rn.first, 10673);
+        EXPECT_EQ( rn.second, 10675);
+        rn = rbwt.find_range("GGCAGGCGGA");
+        EXPECT_EQ(rn.first,  19418);
+        EXPECT_EQ( rn.second, 19423);
+    }
+
+    void FTabTest11merfrom10merFtab() {
+        std::pair<size_t, size_t> rn;
+        rn = rbwt.find_range("TATCGTGGAA");
+        EXPECT_EQ(rn.first,  24272);
+        EXPECT_EQ( rn.second, 24274);
+        rn = rbwt.find_range("GTATCGTGGAA");
+        EXPECT_EQ(rn.first,  21142);
+        EXPECT_EQ( rn.second, 21144);
+        rn = rbwt.find_range("GGAGATATTG");
+        EXPECT_EQ(rn.first,  19097);
+        EXPECT_EQ( rn.second, 19099);
+        rn = rbwt.find_range("TGGAGATATTG");
+        EXPECT_EQ(rn.first,  27180);
+        EXPECT_EQ( rn.second, 27182);
+    }
+
+    rbwt::RowBowt rbwt;
+    std::vector<std::vector<MarkerT>> rets;
+};
+
+
 }
 
 TEST_F(SimpleSeedingTester, Count) {
@@ -343,4 +388,12 @@ TEST_F(GreedySeedingMarkerTester, Marker) {
 
 TEST_F(LMemMarkerTester, Marker) {
     MarkerTester();
+}
+
+TEST_F(FTabTester, FTab) {
+    FTabTest10mer();
+}
+
+TEST_F(FTabTester, FTabExtend) {
+    FTabTest11merfrom10merFtab();
 }

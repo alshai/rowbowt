@@ -9,6 +9,7 @@
 #include "rle_string.hpp"
 #include "toehold_sa.hpp"
 #include "marker_array.hpp"
+#include "ftab.hpp"
 
 namespace rbwt {
 
@@ -16,6 +17,7 @@ std::string rbwt_suffix = ".rbwt";
 std::string tsa_suffix = ".tsa";
 std::string ma_suffix = ".mab";
 std::string dl_suffix = ".docs";
+std::string ft_suffix = ".ftab";
 
 bool file_exists(std::string fname) {
     std::ifstream ifs(fname);
@@ -37,6 +39,8 @@ struct RowBowtConstructArgs {
     int ma = 0;
     int tsa = 0;
     int dl = 0;
+    int ft = 0;
+    size_t k = 10;
 };
 
 void construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
@@ -69,13 +73,21 @@ void construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
         }
         ifs.close();
     }
+    if (args.ft) {
+        rbwt::RowBowt rb(bwt, {}, {}, {}, {});
+        FTab ftab = rb.build_ftab(args.k);
+        std::ofstream ft_ofs(args.prefix + ft_suffix);
+        ftab.serialize(ft_ofs);
+        ft_ofs.close();
+    }
 }
 
 enum class LoadRbwtFlag {
-      NONE=0 // no extra aux structures
-    , SA=1 // load (toehold) suffix array
-    , MA=2 // load marker array
-    , DL=4 // load document list
+      NONE // no extra aux structures
+    , SA // load (toehold) suffix array
+    , MA // load marker array
+    , DL // load document list
+    , FT // load ftab
 };
 inline constexpr LoadRbwtFlag operator|(LoadRbwtFlag a, LoadRbwtFlag b) {
     return static_cast<LoadRbwtFlag>(static_cast<int>(a) | static_cast<int>(b));
@@ -89,6 +101,7 @@ RowBowt load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
     MarkerArray<> ma;
     ToeholdSA tsa;
     DocList dl;
+    FTab ft;
     std::ifstream bwt_ifs(prefix + rbwt_suffix);
     bwt.load(bwt_ifs);
     bwt_ifs.close();
@@ -106,17 +119,34 @@ RowBowt load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
     if (static_cast<bool>(flag & LoadRbwtFlag::MA)) {
         std::cerr << "loading: " << prefix + ma_suffix << std::endl;
         std::ifstream ma_ifs(prefix + ma_suffix);
+        if (!ma_ifs.good()) {
+            std::cerr << "bad mab file" << std::endl;
+            exit(1);
+        }
         ma.load(ma_ifs);
         ma_ifs.close();
     }
     if (static_cast<bool>(flag & LoadRbwtFlag::DL)) {
         std::cerr << "loading: " << prefix + dl_suffix << std::endl;
         std::ifstream dl_ifs(prefix + dl_suffix);
+        if (!dl_ifs.good()) {
+            std::cerr << "bad docs file" << std::endl;
+            exit(1);
+        }
         dl.load(dl_ifs);
         dl_ifs.close();
     }
-    auto x = std::make_optional(tsa);
-    return RowBowt(bwt, std::make_optional(ma), std::make_optional(tsa), std::make_optional(dl));
+    if (static_cast<bool>(flag & LoadRbwtFlag::FT)) {
+        std::cerr << "loading: " << prefix + ft_suffix << std::endl;
+        std::ifstream ft_ifs(prefix + ft_suffix);
+        if (!ft_ifs.good()) {
+            std::cerr << "bad ftab file" << std::endl;
+            exit(1);
+        }
+        ft.load(ft_ifs);
+        ft_ifs.close();
+    }
+    return RowBowt(bwt, std::make_optional(ma), std::make_optional(tsa), std::make_optional(dl), std::make_optional(ft));
 }
 }
 
