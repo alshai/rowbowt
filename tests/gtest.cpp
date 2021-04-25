@@ -217,8 +217,9 @@ class GreedySeedingMarkerTester : public testing::Test {
     void SetUp() override {
         std::string fa("/home/taher/rowbowt/tests/data/small.fa");
         std::string fq("/home/taher/rowbowt/tests/data/error_query.fq");
-        rbwt::LoadRbwtFlag flag;
+        rbwt::LoadRbwtFlag flag = rbwt::LoadRbwtFlag::NONE;
         flag = rbwt::LoadRbwtFlag::MA;
+        flag = flag | rbwt::LoadRbwtFlag::FT;
         rbwt = rbwt::load_rowbowt(fa, flag);
         int err, nreads = 0, noccs = 0;
         gzFile fq_fp(gzopen(fq.data(), "r"));
@@ -233,12 +234,14 @@ class GreedySeedingMarkerTester : public testing::Test {
             std::vector<MarkerT> ret;
             ret.clear();
             auto fn = [&](rbwt::RowBowt::range_t p, std::pair<size_t, size_t> q, std::vector<MarkerT> mbuf) {
-                std::cerr << " [" << p.second - p.first + 1 << "]" << ":[" << q.first << "-" << q.second << "]";
+                std::cerr << " [" << p.second - p.first + 1 << "]" << ":[" << q.first << "-" << q.second << "] ";
                 if (mbuf.size()) {
                     for (auto m: mbuf) {
+                        std::cerr << get_seq(m) << "/" << get_pos(m) << "/" << get_allele(m) << " ";
                         ret.push_back(m);
                     }
                 } 
+                std::cerr << std::endl;
             };
             rbwt.get_markers_greedy_seeding(seq->seq.s, 10, 100, fn);
             rets.push_back(ret);

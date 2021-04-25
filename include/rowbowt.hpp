@@ -106,39 +106,14 @@ class RowBowt {
     range_t find_range(const std::string& query) const {
         range_t range = full_range();
         size_t i = 0;
-        if (ft_) {
-            range = ft_->at(query.substr(query.size()-ft_->get_k(), ft_->get_k()));
-            if (range.first <= range.second) {
-                i = ft_->get_k();
-            } else {
-                range = full_range();
-            }
-        }
+        if (ft_)
+            std::tie(range, i) = search_ftab(query.substr(query.size() - ft_->get_k(), ft_->get_k()));
         size_t m = query.size();
         for(i; i < m && range.second>=range.first; ++i) {
             range = LF(range,query[m-i-1]);
         }
         return range;
     }
-
-    /*
-    // Return BWT range along with a 'toehold' sample of the suffix array. This toehold can be used find neighboring
-    // values in the suffix array
-    std::pair<range_t, uint64_t> find_range_w_toehold(const std::string& query) const {
-        if (!tsa_) return {range_t(), 0};
-        uint64_t m = query.size();
-        range_t range = full_range();
-        uint64_t k = tsa_->get_last_run_sample();
-        for (uint32_t i = 0; i < query.size(); ++i) {
-            std::tie(range, k) = LF_w_loc(range, query[m-i-1], k);
-            if (range.second < range.first) {
-                return std::make_pair(range, 0);
-            }
-        }
-        // range and k can be used to find locations
-        return std::make_pair(range, k);
-    }
-    */
 
     struct LFData {
         LFData() {}
@@ -242,10 +217,8 @@ class RowBowt {
             if (range.second < range.first) {
                 if (ei - (m-i) >= min_length) {
                     // m - i is start because we shouldn't count the current position in query
-                    // std::cerr << "seed size: " << ei - (m-i) << " " << m-i << "-" << ei << std::endl;
                     lfdata.push_back(LFData(prev_range, m-i, ei, pk));
                 } else {
-                    // std::cerr << "(discarded) seed size: " << ei - (m-i) << " " << m-i << "-" << ei << std::endl;
                 }
                 // reset everything, skip to next i
                 k = first_k;
@@ -258,14 +231,8 @@ class RowBowt {
             }
         }
         if (ei >= min_length) {
-            // std::cerr << "seed size: " << ei << " " << 0 << "-" << ei << std::endl;
             lfdata.push_back(LFData(prev_range, 0, ei, pk));
         }
-        // else {
-        //     std::cerr << "(discarded) seed size: " << ei << " " << 0 << "-" << ei << std::endl;
-        // }
-        // range and k can be used to find locations
-        // result can be empty
         return lfdata;
     }
 
@@ -273,22 +240,6 @@ class RowBowt {
         std::vector<LFData> lfs;
         return get_seeds_greedy_w_sample(query, min_length, lfs);
     }
-
-    /*
-     * in progress.
-     * find seeds by partitioning read into min_length sized regions and picking random seeds from each region
-    std::vector<LFData> get_seeds_partitioned(const std::string& query, uint64_t min_length, std::vector<LFData>& lfs) const {
-        // parition the read
-        uint64_t partition_length = query.size() / min_length;
-        for (int i = 0; i < query.size(); i += partition_length) {
-            // pick a random position between i and i + parition_length
-            // apparently you're not supposed to use mod with rand()
-            // https://en.cppreference.com/w/cpp/numeric/random/rand
-            uint64_t start_pos = i + (std::rand()/((RAND_MAX + 1u)/ parition_length));
-            // do LF starting from start_pos
-        }
-    }
-    */
 
     //
     // Return number of occurrences of query in the text
@@ -339,7 +290,6 @@ class RowBowt {
             lf.rn = LF(lf.rn, query[m-i-1]);
             if (lf.rn.second < lf.rn.first) {
                 lf.clear();
-                // std::cerr << "bad range at " << i << ": (" << lf.rn.first << ", " << lf.rn.second << ")\n";
                 return lf;
             } else { // deal with windows here
                 if (window_ei-(m-i) >= wsize) {
@@ -368,7 +318,6 @@ class RowBowt {
         return lf;
     }
 
-    // TODO: include counts/ranges in return value as well
     template<typename F>
     void get_markers_lmems(const std::string query, uint64_t wsize, uint64_t max_range, F fn) const {
         uint64_t m = query.size();
@@ -399,7 +348,6 @@ class RowBowt {
                     prev_range = range;
                 }
             }
-            std::cerr << m-j << ": " << prev_range.second-prev_range.first+1 << std::endl;
             // this is when the whole read is done and a seed hasn't finished yet
             if (seed_ei-(m-i) >= wsize) {
                 update_mbuf(range);
@@ -407,35 +355,67 @@ class RowBowt {
         }
     }
 
-    // TODO: include counts/ranges in return value as well
     template<typename F>
     void get_markers_greedy_seeding(const std::string query, uint64_t wsize, uint64_t max_range, F fn) const {
+        // invariants:                                 
+        // k=3, w=2               r   pr                window_ei
+        //              |       m-i-1 m-i        |       seed_ei
+        //         <--------->    X----<-------------->
+        // i  8    7    6    5    4    3    2    1    0     m 
+        //    0    1    2    3    4    5    6    7    8    (9)
+        //    C    C    G    T    G    A    T    C    A
+        //                        |
+        // k=3       window_ei
+        //  m-i-1 m-i   |      seed_ei |         |
+        //    <-------------->    X----<-------------->
+        // i  8    7    6    5    4    3    2    1    0     m 
+        //    0    1    2    3    4    5    6    7    8    (9)
+        //    C    C    G    T    G    A    T    C    A
         uint64_t m = query.size();
-        range_t prev_range = full_range(), range = full_range();
+        range_t prev_range = full_range();
+        if (ft_ && ft_->get_k() - 1 > wsize) {
+            std::cerr << "ERROR: wsize cannot be greater than or equal to ftab k size. please rebuild ftab with smaller k\n";
+            exit(1);
+        }
+        range_t range = full_range();
+        size_t i = 0;
+        if (ft_) {
+            std::tie(range, i) = search_ftab(query.substr(query.size() - ft_->get_k(), ft_->get_k()));
+            prev_range = range;
+        }
         uint64_t window_ei = m, seed_ei = m;
         std::vector<MarkerT> mbuf;
-        uint64_t i = 0;
-        auto update_mbuf = [&](range_t r) {
+        // input: range, start w/i query, end (excl) w/i query.
+        auto update_mbuf = [&](range_t r, size_t s, size_t e) {
             mbuf.clear();
             if (r.second - r.first + 1 <= max_range) {
                 mbuf = markers_at(r, mbuf);
             }
-            fn(r, std::make_pair(m-i,seed_ei-1), mbuf);
+            fn(r, std::make_pair(s, e-1), mbuf);
         };
-        for (i = 0; i < query.size(); ++i) {
+        for (i; i < query.size(); ++i) {
             range = LF(range, query[m-i-1]);
             if (range.second < range.first) { // this is when the seed fails
                 if (seed_ei-(m-i) >= wsize) { // check markers here if seed is large enough, regardless of window length
-                    update_mbuf(prev_range);
-                } // then reset the seed
-                range = full_range();
+                    update_mbuf(prev_range, m-i, seed_ei);
+                } // then reset the seed, skipping query[m-i-1]
                 prev_range = full_range();
-                seed_ei = m-i-1; // this makes sure we skip current position in query for the next range
+                // seed_ei and window_ei are both exclusive right limits
+                seed_ei = m-i-1; 
                 window_ei = m-i-1;
+                if (ft_ && (m-i-1 >= ft_->get_k())) {
+                    std::tie(range, std::ignore) = search_ftab(query.substr(m-i-1-ft_->get_k(), ft_->get_k()));
+                    if (range.first <= range.second) {
+                        i += ft_->get_k();  // i will be just before kmer seed next iter
+                        prev_range = range;
+                    }
+                } else {
+                    range = full_range();
+                }
             } else { // this is for each window
-                if (window_ei-(m-i) >= wsize) {
-                    update_mbuf(range);
-                    window_ei = m-i; // current position is now window end
+                if (window_ei-(m-i-1) >= wsize) {
+                    update_mbuf(range, m-i-1, window_ei);
+                    window_ei = m-i-1; // current position is now window end (exclusive)
                 }
                 prev_range = range;
             }
@@ -443,7 +423,7 @@ class RowBowt {
 
         // this is when the whole read is done and a seed hasn't finished yet
         if (seed_ei-(m-i) >= wsize) {
-            update_mbuf(range);
+            update_mbuf(range, m-i, seed_ei);
         }
     }
 
@@ -567,7 +547,6 @@ class RowBowt {
                 best_range = lfd;
             }
         }
-        // std::cerr << "best seed [" << best_range.rn.first << " " << best_range.rn.second << "), query [" << best_range.qend-best_range.qstart <<  "] \n";
         // locate for best lf
         locs = locs_at(best_range.rn, best_range.ssamp, max_hits, locs);
         // correction based on where the seed is in the read
@@ -581,21 +560,6 @@ class RowBowt {
         std::vector<uint64_t> locs;
         return locate_from_longest_seed(max_hits, lfs, locs);
     }
-
-    /* we should expect the user to serialize during construction */
-    /*
-    size_t serialize_bwt(std::string out_fname) {
-        return bwt_.serialize(std::ostream(out_fname));
-    }
-
-    size_t serialize_toehold_sa(std::string out_fname) {
-        return tsa_.serialize(std::ostream(out_fname));
-    }
-
-    size_t serialize_marker_array(std::string out_fname) {
-        return ma_.serialize(std::ostream(out_fname));
-    }
-    */
 
     void load_bwt(std::ifstream& ifs) {
         bwt_.load(ifs);
@@ -640,6 +604,21 @@ class RowBowt {
             kmer.clear();
         }
         return ftab;
+    }
+
+    std::pair<range_t, size_t> search_ftab(const std::string& query) const {
+        if (ft_) {
+            if (query.size() != ft_->get_k()) {
+                std::cerr << "error: only string sizes of"  << ft_->get_k() << " are allowed for ftab queries. Received size: " << query.size() << std::endl;
+                exit(1);
+            }
+            size_t i = 0;
+            auto it = ft_->find(query);
+            if (it != ft_->end()) {
+                return std::make_pair(it->second, ft_->get_k());
+            }
+        }
+        return {full_range(), 0};
     }
 
     private:

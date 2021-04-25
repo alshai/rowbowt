@@ -83,11 +83,11 @@ void construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
 }
 
 enum class LoadRbwtFlag {
-      NONE // no extra aux structures
-    , SA // load (toehold) suffix array
-    , MA // load marker array
-    , DL // load document list
-    , FT // load ftab
+      NONE=0 // no extra aux structures
+    , SA=1 // load (toehold) suffix array
+    , MA=2 // load marker array
+    , DL=4 // load document list
+    , FT=8 // load ftab
 };
 inline constexpr LoadRbwtFlag operator|(LoadRbwtFlag a, LoadRbwtFlag b) {
     return static_cast<LoadRbwtFlag>(static_cast<int>(a) | static_cast<int>(b));
@@ -96,57 +96,33 @@ inline constexpr LoadRbwtFlag operator&(LoadRbwtFlag a, LoadRbwtFlag b) {
     return static_cast<LoadRbwtFlag>(static_cast<int>(a) & static_cast<int>(b));
 }
 
+template<typename T>
+T load_obj(std::string fname) {
+    T t;
+    std::cerr << "loading: " << fname << std::endl;
+    uint64_t x;
+    std::ifstream ifs(fname, std::ios_base::in | std::ios_base::binary);
+    if (!ifs.good()) {
+        std::cerr << "bad file" << std::endl;
+        exit(1);
+    }
+    t.load(ifs);
+    ifs.close();
+    return t;
+
+}
+
 RowBowt load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
     rle_string_t bwt;
-    MarkerArray<> ma;
-    ToeholdSA tsa;
-    DocList dl;
-    FTab ft;
     std::ifstream bwt_ifs(prefix + rbwt_suffix);
     bwt.load(bwt_ifs);
     bwt_ifs.close();
-    if (static_cast<bool>(flag & LoadRbwtFlag::SA)) {
-        std::cerr << "loading: " << prefix + tsa_suffix << std::endl;
-        uint64_t x;
-        std::ifstream tsa_ifs(prefix + tsa_suffix, std::ios_base::in | std::ios_base::binary);
-        if (!tsa_ifs.good()) {
-            std::cerr << "bad tsa file" << std::endl;
-            exit(1);
-        }
-        tsa.load(tsa_ifs);
-        tsa_ifs.close();
-    }
-    if (static_cast<bool>(flag & LoadRbwtFlag::MA)) {
-        std::cerr << "loading: " << prefix + ma_suffix << std::endl;
-        std::ifstream ma_ifs(prefix + ma_suffix);
-        if (!ma_ifs.good()) {
-            std::cerr << "bad mab file" << std::endl;
-            exit(1);
-        }
-        ma.load(ma_ifs);
-        ma_ifs.close();
-    }
-    if (static_cast<bool>(flag & LoadRbwtFlag::DL)) {
-        std::cerr << "loading: " << prefix + dl_suffix << std::endl;
-        std::ifstream dl_ifs(prefix + dl_suffix);
-        if (!dl_ifs.good()) {
-            std::cerr << "bad docs file" << std::endl;
-            exit(1);
-        }
-        dl.load(dl_ifs);
-        dl_ifs.close();
-    }
-    if (static_cast<bool>(flag & LoadRbwtFlag::FT)) {
-        std::cerr << "loading: " << prefix + ft_suffix << std::endl;
-        std::ifstream ft_ifs(prefix + ft_suffix);
-        if (!ft_ifs.good()) {
-            std::cerr << "bad ftab file" << std::endl;
-            exit(1);
-        }
-        ft.load(ft_ifs);
-        ft_ifs.close();
-    }
-    return RowBowt(bwt, std::make_optional(ma), std::make_optional(tsa), std::make_optional(dl), std::make_optional(ft));
+    // this would be so much cleaner in Rust... or am I just doing it wrong?
+    std::optional<ToeholdSA> tsa    = static_cast<bool>(flag & LoadRbwtFlag::SA) ? std::make_optional(load_obj<ToeholdSA>(prefix+tsa_suffix))    : std::nullopt;
+    std::optional<MarkerArray<>> ma = static_cast<bool>(flag & LoadRbwtFlag::MA) ? std::make_optional(load_obj<MarkerArray<>>(prefix+ma_suffix)) : std::nullopt;
+    std::optional<DocList> dl       = static_cast<bool>(flag & LoadRbwtFlag::DL) ? std::make_optional(load_obj<DocList>(prefix+dl_suffix))       : std::nullopt;
+    std::optional<FTab> ft          = static_cast<bool>(flag & LoadRbwtFlag::FT) ? std::make_optional(load_obj<FTab>(prefix+ft_suffix))          : std::nullopt;
+    return RowBowt(bwt, ma, tsa, dl, ft);
 }
 }
 
