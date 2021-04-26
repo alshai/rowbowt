@@ -40,6 +40,7 @@ struct RowBowtConstructArgs {
     int tsa = 0;
     int dl = 0;
     int ft = 0;
+    int ft_only = 0;
     size_t k = 10;
 };
 
@@ -80,6 +81,24 @@ void construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
         ftab.serialize(ft_ofs);
         ft_ofs.close();
     }
+}
+
+void construct_and_serialize_ftab(RowBowtConstructArgs args) {
+    std::ifstream rbwt_ifs(args.prefix + rbwt_suffix);
+    rbwt::RowBowt rb;
+    rle_string_t bwt;
+    if (!rbwt_ifs.good())  {
+        std::ifstream bwt_ifs(args.bwt_fname);
+        bwt = rle_string_t(bwt_ifs);
+    } else {
+        std::cerr << "loading rbwt file" << std::endl;
+        bwt.load(rbwt_ifs);
+    }
+    rb = rbwt::RowBowt(bwt, {}, {}, {}, {});
+    FTab ftab = rb.build_ftab(args.k);
+    std::ofstream ft_ofs(args.prefix + ft_suffix);
+    ftab.serialize(ft_ofs);
+    ft_ofs.close();
 }
 
 enum class LoadRbwtFlag {
