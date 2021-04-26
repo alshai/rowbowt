@@ -20,14 +20,16 @@ rbwt::RowBowtConstructArgs parse_args(int argc, char** argv) {
     int c;
     rbwt::RowBowtConstructArgs args;
     static struct option long_options[] {
-        {"output_prefix", required_argument, 0, 'o'},
+        {"output-prefix", required_argument, 0, 'o'},
         {"tsa", required_argument, 0, 's'},
         {"ma", required_argument, 0, 'm'},
         {"dl", required_argument, 0, 'l'},
-        {"ft", required_argument, 0, 'f'}
+        {"ft", required_argument, 0, 'f'},
+        {"ftab-only", no_argument, 0, 'a'}
+
     };
     int long_index = 0;
-    while((c = getopt_long(argc, argv, "o:k:lfsmh", long_options, &long_index)) != -1) {
+    while((c = getopt_long(argc, argv, "o:k:lfsmha", long_options, &long_index)) != -1) {
         switch (c) {
             case 'o':
                 args.prefix = optarg;
@@ -44,11 +46,16 @@ rbwt::RowBowtConstructArgs parse_args(int argc, char** argv) {
             case 'f':
                 args.ft = 1;
                 break;
+            case 'a':
+                args.ft_only = 1;
+                break;
             case 'k':
                 args.k = std::stoull(optarg); break;
             case 'h':
                 print_help();
                 exit(0);
+                break;
+            case '?':
                 break;
             default:
                 print_help();
@@ -80,12 +87,21 @@ rbwt::RowBowtConstructArgs parse_args(int argc, char** argv) {
     return args;
 }
 
+void rb_ftab(rbwt::RowBowtConstructArgs args) {
+    rbwt::construct_and_serialize_ftab(args);
+}
+
 void rb_build(rbwt::RowBowtConstructArgs args) {
     rbwt::construct_and_serialize_rowbowt(args);
 }
 
 int main(int argc, char** argv) {
-    rb_build(parse_args(argc, argv));
+    auto args = parse_args(argc, argv);
+    if (args.ft_only) {
+        rb_ftab(args);
+    } else {
+        rb_build(args);
+    }
     return 0;
 }
 
