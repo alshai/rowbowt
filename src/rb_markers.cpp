@@ -16,6 +16,7 @@ struct RbAlignArgs {
     std::string fastq_fname = "";
     std::string outpre = "";
     int inexact = 0;
+    int ftab = 0;
     size_t wsize = 10;
     size_t max_range = 1000;
     size_t min_range = 0;
@@ -45,11 +46,13 @@ RbAlignArgs parse_args(int argc, char** argv) {
         {"min-range", required_argument, 0, 'm'}
     };
     int long_index = 0;
-    while((c = getopt_long(argc, argv, "o:w:r:h", long_options, &long_index)) != -1) {
+    while((c = getopt_long(argc, argv, "o:w:r:hf", long_options, &long_index)) != -1) {
         switch (c) {
             case 'o':
                 args.outpre = optarg;
                 break;
+            case 'f':
+                args.ftab = 1; break;
             case 'r':
                 args.max_range = std::atol(optarg);
                 break;
@@ -124,16 +127,16 @@ struct RowBowtRet {
 void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq, std::vector<MarkerT>& markers) {
     markers.clear();
     auto fn = [&](rbwt::RowBowt::range_t p, std::pair<size_t, size_t> q, std::vector<MarkerT> mbuf) {
-        std::cerr << " [" << p.second - p.first + 1 << "]" << ":[" << q.first << "-" << q.second << "]";
+        // std::cerr << " [" << p.second - p.first + 1 << "]" << ":[" << q.first << "-" << q.second << "]";
         if (p.second - p.first + 1 >= args.min_range && mbuf.size()) {
             for (auto m: mbuf) {
-                std::cerr << ":" << get_seq(m) << "/" <<  get_pos(m) << "/" << static_cast<int>(get_allele(m));
+                // std::cerr << ":" << get_seq(m) << "/" <<  get_pos(m) << "/" << static_cast<int>(get_allele(m));
                 markers.push_back(m);
             }
         }
     };
     std::cout << seq->name.s;
-    std::cerr << seq->name.s;
+    // std::cerr << seq->name.s;
     rbwt.get_markers_greedy_seeding(seq->seq.s, args.wsize, args.max_range, fn);
     revc_in_place(seq);
     rbwt.get_markers_greedy_seeding(seq->seq.s, args.wsize, args.max_range, fn);
@@ -142,14 +145,17 @@ void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq, s
     });
     markers.erase(std::unique(markers.begin(), markers.end()), markers.end());
     for (auto m: markers) {
-        std::cout << " " << get_pos(m) << "/" << static_cast<int>(get_allele(m));
+        std::cout << " " << get_seq(m) << "/" << get_pos(m) << "/" << static_cast<int>(get_allele(m));
     }
-    std::cerr << "\n";
+    // std::cerr << "\n";
     std::cout << "\n";
 }
 
 rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
     auto flag = rbwt::LoadRbwtFlag::MA;
+    if (args.ftab) {
+        flag = flag | rbwt::LoadRbwtFlag::FT;
+    }
     rbwt::RowBowt rbwt(rbwt::load_rowbowt(args.inpre, flag));
     return rbwt;
 }
