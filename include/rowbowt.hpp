@@ -29,7 +29,7 @@ class RowBowt {
     RowBowt() {
     }
 
-    RowBowt(rle_string_t& bwt
+    RowBowt(const rle_string_t& bwt
             ,const std::optional<MarkerArray<>>& ma
             ,const std::optional<ToeholdSA>& tsa
             ,const std::optional<DocList>& dl
@@ -41,6 +41,22 @@ class RowBowt {
         , tsa_(tsa)
         , dl_(dl)
         , ft_(ft)
+    {
+        r_ = bwt_.number_of_runs();
+    }
+
+    RowBowt(rle_string_t&& bwt
+            ,std::optional<MarkerArray<>>&& ma
+            ,std::optional<ToeholdSA>&& tsa
+            ,std::optional<DocList>&& dl
+            ,std::optional<FTab>&& ft
+            )
+        : bwt_(std::move(bwt))
+        , f_(build_f(bwt_))
+        , ma_(std::move(ma))
+        , tsa_(std::move(tsa))
+        , dl_(std::move(dl))
+        , ft_(std::move(ft))
     {
         r_ = bwt_.number_of_runs();
     }
@@ -249,6 +265,7 @@ class RowBowt {
         return rn.second>=rn.first ? (rn.second-rn.first)+1 : 0;
     }
 
+    // WARNING: does not clear markers!
     std::vector<MarkerT>& markers_at(uint64_t i, std::vector<MarkerT>& markers) const {
         if (!ma_) return markers;
         return ma_->at(i, markers);
@@ -357,18 +374,18 @@ class RowBowt {
 
     template<typename F>
     void get_markers_greedy_seeding(const std::string query, uint64_t wsize, uint64_t max_range, F fn) const {
-        // invariants:                                 
+        // invariants:
         // k=3, w=2               r   pr                window_ei
         //              |       m-i-1 m-i        |       seed_ei
         //         <--------->    X----<-------------->
-        // i  8    7    6    5    4    3    2    1    0     m 
+        // i  8    7    6    5    4    3    2    1    0     m
         //    0    1    2    3    4    5    6    7    8    (9)
         //    C    C    G    T    G    A    T    C    A
         //                        |
         // k=3       window_ei
         //  m-i-1 m-i   |      seed_ei |         |
         //    <-------------->    X----<-------------->
-        // i  8    7    6    5    4    3    2    1    0     m 
+        // i  8    7    6    5    4    3    2    1    0     m
         //    0    1    2    3    4    5    6    7    8    (9)
         //    C    C    G    T    G    A    T    C    A
         uint64_t m = query.size();
@@ -401,7 +418,7 @@ class RowBowt {
                 } // then reset the seed, skipping query[m-i-1]
                 prev_range = full_range();
                 // seed_ei and window_ei are both exclusive right limits
-                seed_ei = m-i-1; 
+                seed_ei = m-i-1;
                 window_ei = m-i-1;
                 if (ft_ && (m-i-1 >= ft_->get_k())) {
                     std::tie(range, std::ignore) = search_ftab(query.substr(m-i-1-ft_->get_k(), ft_->get_k()));
@@ -425,6 +442,84 @@ class RowBowt {
         if (seed_ei-(m-i) >= wsize) {
             update_mbuf(range, m-i, seed_ei);
         }
+    }
+
+    template<typename F>
+    void get_markers_experimental(const std::string query, uint64_t wsize, uint64_t max_range, F fn) const {
+        // invariants:
+        // k=3, w=2               r   pr                window_ei
+        //              |       m-i-1 m-i        |       seed_ei
+        //         <--------->    X----<-------------->
+        // i  8    7    6    5    4    3    2    1    0     m
+        //    0    1    2    3    4    5    6    7    8    (9)
+        //    C    C    G    T    G    A    T    C    A
+        //                        |
+        // k=3       window_ei
+        //  m-i-1 m-i   |      seed_ei |         |
+        //    <-------------->    X----<-------------->
+        // i  8    7    6    5    4    3    2    1    0     m
+        //    0    1    2    3    4    5    6    7    8    (9)
+        //    C    C    G    T    G    A    T    C    A
+        uint64_t m = query.size();
+        if (ft_ && ft_->get_k() - 1 > wsize) {
+            std::cerr << "ERROR: wsize cannot be greater than or equal to ftab k size. please rebuild ftab with smaller k\n";
+            exit(1);
+        }
+        range_t prev_range = full_range();
+        range_t range = full_range();
+        size_t i = 0;
+        if (ft_) {
+            std::tie(range, i) = search_ftab(query.substr(query.size() - ft_->get_k(), ft_->get_k()));
+            prev_range = range;
+        }
+        uint64_t window_ei = m, seed_ei = m;
+        std::vector<MarkerT> mbuf;
+        // input: range, start w/i query, end (excl) w/i query.
+        auto update_mbuf = [&](range_t r) {
+            if (r.second-r.first+1 <= max_range) {
+                mbuf = markers_at(r, mbuf);
+            }
+        };
+        for (i; i < query.size(); ++i) {
+            range = LF(range, query[m-i-1]);
+            if (range.second < range.first) { // this is when the seed fails
+                if (seed_ei-(m-i) >= wsize) { // check markers here if seed is large enough, regardless of window length
+                    update_mbuf(prev_range);
+                } // then reset the seed, skipping query[m-i-1]
+                fn(prev_range, std::make_pair(m-i, seed_ei-1), mbuf);
+                mbuf.clear();
+                prev_range = full_range();
+                // seed_ei and window_ei are both exclusive right limits
+                seed_ei = m-i-1;
+                window_ei = m-i-1;
+                if (ft_ && m-i-1 >= ft_->get_k()) { // keep trying kmers, shifting left by one, until we find a match
+                    for (; m-i-1 >= ft_->get_k(); ++i) {
+                        seed_ei = m-i-1;
+                        window_ei = m-i-1;
+                        std::tie(range, std::ignore) = search_ftab(query.substr(m-i-1-ft_->get_k(), ft_->get_k()));
+                        if (range.first <= range.second) {
+                            i += ft_->get_k();  // i will be just before kmer seed next iter
+                            prev_range = range;
+                            break;
+                        } else range = full_range();
+                    }
+                } else {
+                    range = full_range();
+                }
+            } else { // this is for each window
+                if (window_ei-(m-i-1) >= wsize) {
+                    update_mbuf(range);
+                    window_ei = m-i-1; // current position is now window end (exclusive)
+                }
+                prev_range = range;
+            }
+        }
+
+        // this is when the whole read is done and a seed hasn't finished yet
+        if (seed_ei-(m-i) >= wsize) {
+            update_mbuf(range);
+        }
+        fn(range, std::make_pair(m-i, seed_ei-1), mbuf);
     }
 
 
@@ -623,7 +718,7 @@ class RowBowt {
 
     private:
 
-    std::vector<uint64_t> build_f(ri::rle_string_sd& bwt) const {
+    std::vector<uint64_t> build_f(const ri::rle_string_sd& bwt) const {
         std::vector<uint64_t> f_(256,0);
         uint64_t p = 0;
         for (size_t i = 0; i < 255; ++i) {

@@ -141,7 +141,7 @@ RowBowt load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
     std::optional<MarkerArray<>> ma = static_cast<bool>(flag & LoadRbwtFlag::MA) ? std::make_optional(load_obj<MarkerArray<>>(prefix+ma_suffix)) : std::nullopt;
     std::optional<DocList> dl       = static_cast<bool>(flag & LoadRbwtFlag::DL) ? std::make_optional(load_obj<DocList>(prefix+dl_suffix))       : std::nullopt;
     std::optional<FTab> ft          = static_cast<bool>(flag & LoadRbwtFlag::FT) ? std::make_optional(load_obj<FTab>(prefix+ft_suffix))          : std::nullopt;
-    return RowBowt(bwt, ma, tsa, dl, ft);
+    return RowBowt(std::move(bwt), std::move(ma), std::move(tsa), std::move(dl), std::move(ft));
 }
 }
 
