@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <getopt.h>
 #include <string>
+#include <chrono>
 extern "C" {
 #include <zlib.h>
 #ifndef AC_KSEQ_H
@@ -86,6 +87,27 @@ RbAlignArgs parse_args(int argc, char** argv) {
     return args;
 }
 
+
+uint8_t seq_ntoa_table[] = {
+ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'A', 'N', 'C', 'N', 'N', 'N', 'G', 'N', 'N', 'N', 'N', 'N', 'N', 'A', 'N',
+ 'N', 'N', 'N', 'N', 'T', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'A', 'N', 'C', 'N', 'N', 'N', 'G', 'N', 'N', 'N', 'N', 'N', 'N', 'A', 'N',
+ 'N', 'N', 'N', 'N', 'T', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+};
+
+
 char comp_tab[] = {
     0,    1,    2,    3,    4,    5,    6,    7,    8,    9,    10,   11,   12,   13,   14,   15,
     16,   17,   18,   19,   20,   21,   22,   23,   24,   25,   26,   27,   28,   29,   30,   31,
@@ -124,31 +146,38 @@ struct RowBowtRet {
     std::vector<MarkerT> markers;
 };
 
+bool marker_cmp(MarkerT a, MarkerT b) {
+    if (get_seq(a) == get_seq(b) && get_pos(a) == get_pos(b)) {
+        return get_allele(a) < get_allele(b);
+    } else if (get_seq(a) == get_seq(b)) {
+        return get_pos(a) < get_pos(b);
+    } else {
+        return get_seq(a) < get_seq(b);
+    }
+}
+
 void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq, std::vector<MarkerT>& markers) {
+    // get rid of Ns in seq
+    for (size_t i = 0; i < seq->seq.l; ++i) {
+        seq->seq.s[i] = seq_ntoa_table[seq->seq.s[i]];
+    }
     markers.clear();
+    bool rev = false;
     auto fn = [&](rbwt::RowBowt::range_t p, std::pair<size_t, size_t> q, std::vector<MarkerT> mbuf) {
-        // std::cerr << " [" << p.second - p.first + 1 << "]" << ":[" << q.first << "-" << q.second << "]";
+        size_t qstart = rev ? seq->seq.l-q.first-1 : q.first;
+        std::cout << seq->name.s << " " << p.second-p.first+1 << " " << (rev ? "-" : "+") << " " << q.first << " " << q.second << " " << q.second-q.first+1;
         if (p.second - p.first + 1 >= args.min_range && mbuf.size()) {
             for (auto m: mbuf) {
-                // std::cerr << ":" << get_seq(m) << "/" <<  get_pos(m) << "/" << static_cast<int>(get_allele(m));
+                std::cout << " " << get_seq(m) << "/" <<  get_pos(m) << "/" << static_cast<int>(get_allele(m));
                 markers.push_back(m);
             }
-        }
+        }  else std::cout << " .";
+        std::cout << std::endl;
     };
-    std::cout << seq->name.s;
-    // std::cerr << seq->name.s;
-    rbwt.get_markers_greedy_seeding(seq->seq.s, args.wsize, args.max_range, fn);
+    rbwt.get_markers_experimental(seq->seq.s, args.wsize, args.max_range, fn);
     revc_in_place(seq);
-    rbwt.get_markers_greedy_seeding(seq->seq.s, args.wsize, args.max_range, fn);
-    std::sort(markers.begin(), markers.end(), [](MarkerT a, MarkerT b) {
-            return get_pos(a) < get_pos(b);
-    });
-    markers.erase(std::unique(markers.begin(), markers.end()), markers.end());
-    for (auto m: markers) {
-        std::cout << " " << get_seq(m) << "/" << get_pos(m) << "/" << static_cast<int>(get_allele(m));
-    }
-    // std::cerr << "\n";
-    std::cout << "\n";
+    rev = true;
+    rbwt.get_markers_experimental(seq->seq.s, args.wsize, args.max_range, fn);
 }
 
 rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
@@ -161,7 +190,11 @@ rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
 }
 
 void rb_markers_all(RbAlignArgs args) {
+    auto start = std::chrono::high_resolution_clock::now();
     rbwt::RowBowt rbwt(load_rbwt(args));
+    auto stop = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff = stop - start;
+    std::cerr << "loading rowbowt + markers took: " << diff.count() << " seconds\n";
     int err, nreads = 0, noccs = 0;
     gzFile fq_fp(gzopen(args.fastq_fname.data(), "r"));
     if (fq_fp == NULL) {
