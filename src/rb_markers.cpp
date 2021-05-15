@@ -15,8 +15,6 @@ KSEQ_INIT(gzFile, gzread);
 struct RbAlignArgs {
     std::string inpre = "";
     std::string fastq_fname = "";
-    std::string outpre = "";
-    int inexact = 0;
     int ftab = 0;
     size_t wsize = 10;
     size_t max_range = 1000;
@@ -49,9 +47,6 @@ RbAlignArgs parse_args(int argc, char** argv) {
     int long_index = 0;
     while((c = getopt_long(argc, argv, "o:w:r:hf", long_options, &long_index)) != -1) {
         switch (c) {
-            case 'o':
-                args.outpre = optarg;
-                break;
             case 'f':
                 args.ftab = 1; break;
             case 'r':
@@ -81,9 +76,6 @@ RbAlignArgs parse_args(int argc, char** argv) {
 
     args.inpre = argv[optind++];
     args.fastq_fname = argv[optind++];
-    if (args.outpre == "") {
-        args.outpre = args.inpre;
-    }
     return args;
 }
 
@@ -139,12 +131,15 @@ void revc_in_place(kseq_t* seq) {
 }
 
 
-struct RowBowtRet {
-    rbwt::RowBowt::range_t r;
-    uint64_t ts; // toehold sample
-    std::vector<uint64_t> locs;
-    std::vector<MarkerT> markers;
-};
+rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
+    auto flag = rbwt::LoadRbwtFlag::MA;
+    if (args.ftab) {
+        flag = flag | rbwt::LoadRbwtFlag::FT;
+    }
+    rbwt::RowBowt rbwt(rbwt::load_rowbowt(args.inpre, flag));
+    return rbwt;
+}
+
 
 bool marker_cmp(MarkerT a, MarkerT b) {
     if (get_seq(a) == get_seq(b) && get_pos(a) == get_pos(b)) {
@@ -156,6 +151,7 @@ bool marker_cmp(MarkerT a, MarkerT b) {
     }
 }
 
+// TODO turn this into something that's compatible with threading
 void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq, std::vector<MarkerT>& markers) {
     // get rid of Ns in seq
     for (size_t i = 0; i < seq->seq.l; ++i) {
@@ -174,19 +170,10 @@ void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq, s
         }  else std::cout << " .";
         std::cout << std::endl;
     };
-    rbwt.get_markers_experimental(seq->seq.s, args.wsize, args.max_range, fn);
+    rbwt.get_markers_greedy_seeding(seq->seq.s, args.wsize, args.max_range, fn);
     revc_in_place(seq);
     rev = true;
-    rbwt.get_markers_experimental(seq->seq.s, args.wsize, args.max_range, fn);
-}
-
-rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
-    auto flag = rbwt::LoadRbwtFlag::MA;
-    if (args.ftab) {
-        flag = flag | rbwt::LoadRbwtFlag::FT;
-    }
-    rbwt::RowBowt rbwt(rbwt::load_rowbowt(args.inpre, flag));
-    return rbwt;
+    rbwt.get_markers_greedy_seeding(seq->seq.s, args.wsize, args.max_range, fn);
 }
 
 void rb_markers_all(RbAlignArgs args) {
@@ -204,6 +191,7 @@ void rb_markers_all(RbAlignArgs args) {
     kseq_t* seq(kseq_init(fq_fp));
     std::vector<MarkerT> markers;
     while ((err = kseq_read(seq)) >= 0) {
+        // TODO: pass off to a worker
         rb_report(rbwt, args, seq, markers);
     }
     // error checking here
