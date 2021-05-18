@@ -227,7 +227,7 @@ class ThreadPool {
                 {
                     std::unique_lock<std::mutex> lock(this->task_mutex);
                     this->task_status.wait(lock, [this]() {return this->stop || !this->seq_queue.empty();});
-                    if (this->stop && this->seq_queue.empty()) return;
+                    if (this->stop && this->seq_queue.empty()) break;
                     // copy over data
                     seq = std::move(seq_queue.front());
                     seq_queue.pop();
@@ -243,6 +243,12 @@ class ThreadPool {
                 rev = true;
                 this->rbwt.get_markers_greedy_seeding(seq.seq, this->args.wsize, this->args.max_range, out_fn);
                 j += 1;
+                if (out_buf.tellp() > 4096) {
+                    tout << out_buf.str();
+                    out_buf.str(std::string());
+                }
+            }
+            if (out_buf.tellp()) {
                 tout << out_buf.str();
                 out_buf.str(std::string());
             }
