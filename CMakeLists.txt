@@ -44,7 +44,7 @@ add_executable(rb_locs src/rb_markers_tsa.cpp)
 add_executable(build_midx src/build_midx.cpp)
 add_executable(rb_tests tests/gtest.cpp)
 target_link_libraries(rb_align z)
-target_link_libraries(rb_markers z)
+target_link_libraries(rb_markers z pthread)
 target_link_libraries(rb_locs z)
 target_link_libraries(rb_tests z gtest_main)
 

@@ -26,6 +26,7 @@ struct RbAlignArgs {
     size_t max_range = 1000;
     size_t min_range = 0;
     size_t threads = 1;
+    size_t max_tasks = 1024;
 };
 
 void print_help() {
@@ -47,15 +48,21 @@ RbAlignArgs parse_args(int argc, char** argv) {
         {"wsize", required_argument, 0, 'w'},
         {"max-range", required_argument, 0, 'r'},
         {"min-range", required_argument, 0, 'm'},
-        {"threads", required_argument, 0, 't'}
+        {"threads", required_argument, 0, 't'},
+        {"max-tasks", required_argument, 0, 'u'}
     };
     int long_index = 0;
-    while((c = getopt_long(argc, argv, "o:w:r:hft:", long_options, &long_index)) != -1) {
+    while((c = getopt_long(argc, argv, "o:w:r:hft:m:u:", long_options, &long_index)) != -1) {
         switch (c) {
             case 't':
                 args.threads = std::atol(optarg);
+                break;
+            case 'u':
+                args.max_tasks = std::atol(optarg);
+                break;
             case 'f':
-                args.ftab = 1; break;
+                args.ftab = 1;
+                break;
             case 'r':
                 args.max_range = std::atol(optarg);
                 break;
@@ -175,8 +182,9 @@ bool marker_cmp(MarkerT a, MarkerT b) {
 
 class ThreadPool {
     public:
-    ThreadPool(int n, const rbwt::RowBowt& r, const RbAlignArgs& a) 
+    ThreadPool(int n, int m, const rbwt::RowBowt& r, const RbAlignArgs& a) 
         : nthreads(n)
+        , max_tasks(m)
         , rbwt(r)
         , args(a) 
     {
@@ -198,10 +206,15 @@ class ThreadPool {
             if (stop) {
                 throw std::runtime_error("add_task stopped ThreadPool");
             }
+            if (seq_queue.size() > max_tasks) {
+                queue_status.wait(lock, [this]() { return this->seq_queue.size() < this->max_tasks; });
+            }
             seq_queue.emplace(kseq);
         }
         task_status.notify_one();
     }
+
+    void set_max_tasks(int n) { max_tasks = n; }
 
     private:
     void make_thread(int i) {
@@ -231,6 +244,7 @@ class ThreadPool {
                     // copy over data
                     seq = std::move(seq_queue.front());
                     seq_queue.pop();
+                    queue_status.notify_one();
                 }
                 markers.clear();
                 // do work on data here
@@ -256,10 +270,11 @@ class ThreadPool {
         workers.push_back(std::thread(worker));
     }
     int nthreads=1;
+    int max_tasks = 1024;
     std::atomic_bool stop = false;
     std::mutex task_mutex;
     std::condition_variable task_status;
-    std::condition_variable thread_status;
+    std::condition_variable queue_status;
     std::vector<std::thread> workers;
     std::queue<KSeqString> seq_queue;
     const RbAlignArgs args;
@@ -278,36 +293,20 @@ rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
 }
 
 
-
-// TODO turn this into something that's compatible with threading
-void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, KSeqString seq, std::vector<MarkerT>& markers) {
-    // get rid of Ns in seq
-    for (size_t i = 0; i < seq.seq.size(); ++i) {
-        seq.seq[i] = seq_ntoa_table[seq.seq[i]];
-    }
-    /*
-    markers.clear();
-    bool rev = false;
-    rbwt.get_markers_greedy_seeding(seq.seq, args.wsize, args.max_range, fn);
-    */
-    auto out = tout;
-    out << seq.seq << std::endl;
-    revc_in_place(seq);
-    bool rev = true;
-    out << seq.seq << std::endl;
-    /*
-    rbwt.get_markers_greedy_seeding(seq.seq, args.wsize, args.max_range, fn);
-    */
-}
-
 void rb_markers_all(RbAlignArgs args) {
     auto start = std::chrono::high_resolution_clock::now();
+    std::cerr << "loading rowbowt + markers";
+    if (args.ftab) {
+        std::cerr << " and ftab";
+    }
+    std::cerr << std::endl;
     rbwt::RowBowt rbwt(load_rbwt(args));
     auto stop = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = stop - start;
     std::cerr << "loading rowbowt + markers took: " << diff.count() << " seconds\n";
     // initiate thread pool
-    ThreadPool pool(args.threads, rbwt, args);
+    start = std::chrono::high_resolution_clock::now();
+    ThreadPool pool(args.threads, args.max_tasks, rbwt, args);
     // open file
     int err, nreads = 0, noccs = 0;
     gzFile fq_fp(gzopen(args.fastq_fname.data(), "r"));
@@ -333,6 +332,9 @@ void rb_markers_all(RbAlignArgs args) {
         default:
             break;
     }
+    stop = std::chrono::high_resolution_clock::now();
+    diff = stop - start;
+    std::cerr << "counting markers took: " << diff.count() << " seconds" << std::endl;
 }
 
 int main(int argc, char** argv) {
