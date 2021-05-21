@@ -451,6 +451,74 @@ class RowBowt {
     }
 
 
+    template<typename F>
+    void get_markers_greedy_overlap_seeding(const std::string query, uint64_t wsize, uint64_t max_range, F fn) const {
+        uint64_t m = query.size();
+        if (ft_) {
+            std::cerr << "ftab required for this function\n";
+            exit(1);
+        }
+        if (ft_->get_k()-1 > wsize) {
+            std::cerr << "ERROR: wsize cannot be greater than or equal to ftab k size. please rebuild ftab with smaller k\n";
+            exit(1);
+        }
+        range_t prev_range = full_range();
+        range_t range = full_range();
+        size_t i = 0;
+        std::tie(range, i) = search_ftab(query.substr(query.size() - ft_->get_k(), ft_->get_k()));
+        prev_range = range;
+        uint64_t window_ei = m, seed_ei = m;
+        std::vector<MarkerT> mbuf;
+        // input: range, start w/i query, end (excl) w/i query.
+        auto update_mbuf = [&](range_t r) {
+            if (r.second-r.first+1 <= max_range) {
+                mbuf = markers_at(r, mbuf);
+            }
+        };
+        for (i; i < query.size(); ++i) {
+            range = LF(range, query[m-i-1]);
+            if (range.second < range.first) { // this is when the seed fails
+                if (seed_ei-(m-i) >= wsize) { // check markers here if seed is large enough, regardless of window length
+                    update_mbuf(prev_range);
+                } // then reset the seed, skipping query[m-i-1]
+                fn(prev_range, std::make_pair(m-i, seed_ei-1), mbuf);
+                mbuf.clear();
+                prev_range = full_range();
+                // seed_ei and window_ei are both exclusive right limits
+                // TODO: reset i to ft_->get_k() bases back
+                i = i+1>=ft_->get_k() ? i+1-ft_->get_k() : i;
+                seed_ei = m-i-1;
+                window_ei = m-i-1;
+                if (m-i-1 >= ft_->get_k()) { // keep trying kmers, shifting left by one, until we find a match
+                    for (; m-i-1 >= ft_->get_k(); ++i) {
+                        seed_ei = m-i-1;
+                        window_ei = m-i-1;
+                        std::tie(range, std::ignore) = search_ftab(query.substr(m-i-1-ft_->get_k(), ft_->get_k()));
+                        if (range.first <= range.second) {
+                            i += ft_->get_k();  // i will be just before kmer seed next iter
+                            prev_range = range;
+                            break;
+                        } else range = full_range();
+                    }
+                } else {
+                    range = full_range();
+                }
+            } else { // this is for each window
+                if (window_ei-(m-i-1) >= wsize) {
+                    update_mbuf(range);
+                    window_ei = m-i-1; // current position is now window end (exclusive)
+                }
+                prev_range = range;
+            }
+        }
+
+        // this is when the whole read is done and a seed hasn't finished yet
+        if (seed_ei-(m-i) >= wsize) {
+            update_mbuf(range);
+        }
+        fn(range, std::make_pair(m-i, seed_ei-1), mbuf);
+    }
+
     std::pair<range_t, uint64_t> LF_w_loc(const range_t range, uint8_t c, uint64_t k) const {
         uint64_t nk;
         range_t nrange = LF(range, c);
