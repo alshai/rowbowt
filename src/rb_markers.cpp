@@ -17,11 +17,13 @@ KSEQ_INIT(gzFile, gzread);
 #include "rowbowt.hpp"
 #include "rowbowt_io.hpp"
 #include "thread_stream.hpp"
+#include "fbb_string.hpp"
 
 struct RbAlignArgs {
     std::string inpre = "";
     std::string fastq_fname = "";
     int ftab = 0;
+    int fbb = 1;
     size_t wsize = 10;
     size_t max_range = 1000;
     size_t min_range = 0;
@@ -36,6 +38,7 @@ void print_help() {
     fprintf(stderr, "    --wsize            <int>         window size for performing marker queries along read\n");
     fprintf(stderr, "    --max-range        <int>         range-size upper threshold for performing marker queries\n");
     fprintf(stderr, "    --min-range        <int>         range-size upper threshold for performing marker queries\n");
+    fprintf(stderr, "    --fbb                            use wt_fbb instead of rle_string_t\n");
     fprintf(stderr, "    <input_prefix>                   index prefix\n");
     fprintf(stderr, "    <input_fastq>                    input fastq\n");
 }
@@ -49,10 +52,11 @@ RbAlignArgs parse_args(int argc, char** argv) {
         {"max-range", required_argument, 0, 'r'},
         {"min-range", required_argument, 0, 'm'},
         {"threads", required_argument, 0, 't'},
-        {"max-tasks", required_argument, 0, 'u'}
+        {"max-tasks", required_argument, 0, 'u'},
+        {"fbb", required_argument, 0, 'x'}
     };
     int long_index = 0;
-    while((c = getopt_long(argc, argv, "o:w:r:hft:m:u:", long_options, &long_index)) != -1) {
+    while((c = getopt_long(argc, argv, "o:w:r:hft:m:u:x", long_options, &long_index)) != -1) {
         switch (c) {
             case 't':
                 args.threads = std::atol(optarg);
@@ -75,6 +79,9 @@ RbAlignArgs parse_args(int argc, char** argv) {
             case 'h':
                 print_help();
                 exit(0);
+                break;
+            case 'x':
+                args.fbb = 1;
                 break;
             default:
                 print_help();
@@ -180,9 +187,10 @@ bool marker_cmp(MarkerT a, MarkerT b) {
 
 
 
+template<typename StringT=rbwt::rle_string_t>
 class ThreadPool {
     public:
-    ThreadPool(int n, int m, const rbwt::RowBowt& r, const RbAlignArgs& a) 
+    ThreadPool(int n, int m, const rbwt::RowBowt<StringT>& r, const RbAlignArgs& a) 
         : nthreads(n)
         , max_tasks(m)
         , rbwt(r)
@@ -224,7 +232,7 @@ class ThreadPool {
             std::ostringstream out_buf;
             int j = 0;
             bool rev;
-            auto out_fn = [&](rbwt::RowBowt::range_t p, std::pair<size_t, size_t> q, std::vector<MarkerT> mbuf) {
+            auto out_fn = [&](typename rbwt::RowBowt<StringT>::range_t p, std::pair<size_t, size_t> q, std::vector<MarkerT> mbuf) {
                 size_t qstart = rev ? seq.seq.size()-q.first-1 : q.first;
                 out_buf << seq.name << " " << p.second-p.first+1 << " " << (rev ? "-" : "+") << " " << q.first << " " << q.second << " " << q.second-q.first+1;
                 if (p.second - p.first + 1 >= this->args.min_range && mbuf.size()) {
@@ -278,21 +286,23 @@ class ThreadPool {
     std::vector<std::thread> workers;
     std::queue<KSeqString> seq_queue;
     const RbAlignArgs args;
-    const rbwt::RowBowt& rbwt;
+    const rbwt::RowBowt<StringT>& rbwt;
 };
 
 
 
-rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
+template<typename StringT=rbwt::rle_string_t>
+rbwt::RowBowt<StringT> load_rbwt(const RbAlignArgs args) {
     auto flag = rbwt::LoadRbwtFlag::MA;
     if (args.ftab) {
         flag = flag | rbwt::LoadRbwtFlag::FT;
     }
-    rbwt::RowBowt rbwt(rbwt::load_rowbowt(args.inpre, flag));
+    rbwt::RowBowt<StringT> rbwt(rbwt::load_rowbowt<StringT>(args.inpre, flag));
     return rbwt;
 }
 
 
+template<typename StringT=rbwt::rle_string_t>
 void rb_markers_all(RbAlignArgs args) {
     auto start = std::chrono::high_resolution_clock::now();
     std::cerr << "loading rowbowt + markers";
@@ -300,7 +310,7 @@ void rb_markers_all(RbAlignArgs args) {
         std::cerr << " and ftab";
     }
     std::cerr << std::endl;
-    rbwt::RowBowt rbwt(load_rbwt(args));
+    rbwt::RowBowt<StringT> rbwt(load_rbwt<StringT>(args));
     auto stop = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = stop - start;
     std::cerr << "loading rowbowt + markers took: " << diff.count() << " seconds\n";
@@ -338,5 +348,10 @@ void rb_markers_all(RbAlignArgs args) {
 }
 
 int main(int argc, char** argv) {
-    rb_markers_all(parse_args(argc, argv));
+    auto args = parse_args(argc, argv);
+    if (args.fbb) {
+        rb_markers_all<ri::fbb_string>(args);
+    } else {
+        rb_markers_all<rbwt::rle_string_t>(args);
+    }
 }

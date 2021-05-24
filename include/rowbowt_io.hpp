@@ -44,9 +44,10 @@ struct RowBowtConstructArgs {
     size_t k = 10;
 };
 
+template<typename StringT=rle_string_t>
 void construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
-    std::ifstream bwt_ifs(args.bwt_fname);
-    rle_string_t bwt(bwt_ifs);
+    // std::ifstream bwt_ifs(args.bwt_fname);
+    StringT bwt(args.bwt_fname);
     std::ofstream bwt_ofs(args.prefix + rbwt_suffix);
     bwt.serialize(bwt_ofs);
     bwt_ofs.close();
@@ -75,7 +76,7 @@ void construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
         ifs.close();
     }
     if (args.ft) {
-        rbwt::RowBowt rb(bwt, {}, {}, {}, {});
+        rbwt::RowBowt<StringT> rb(bwt, {}, {}, {}, {});
         FTab ftab = rb.build_ftab(args.k);
         std::ofstream ft_ofs(args.prefix + ft_suffix);
         ftab.serialize(ft_ofs);
@@ -83,18 +84,19 @@ void construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
     }
 }
 
+template<typename StringT=rle_string_t>
 void construct_and_serialize_ftab(RowBowtConstructArgs args) {
     std::ifstream rbwt_ifs(args.prefix + rbwt_suffix);
-    rbwt::RowBowt rb;
-    rle_string_t bwt;
+    rbwt::RowBowt<StringT> rb;
+    StringT bwt;
     if (!rbwt_ifs.good())  {
-        std::ifstream bwt_ifs(args.bwt_fname);
-        bwt = rle_string_t(bwt_ifs);
+        // std::ifstream bwt_ifs(args.bwt_fname);
+        bwt = StringT(args.bwt_fname);
     } else {
         std::cerr << "loading rbwt file" << std::endl;
         bwt.load(rbwt_ifs);
     }
-    rb = rbwt::RowBowt(bwt, {}, {}, {}, {});
+    rb = rbwt::RowBowt<StringT>(bwt, {}, {}, {}, {});
     FTab ftab = rb.build_ftab(args.k);
     std::ofstream ft_ofs(args.prefix + ft_suffix);
     ftab.serialize(ft_ofs);
@@ -131,8 +133,9 @@ T load_obj(std::string fname) {
 
 }
 
-RowBowt load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
-    rle_string_t bwt;
+template<typename StringT=rle_string_t>
+RowBowt<StringT> load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
+    StringT bwt;
     std::ifstream bwt_ifs(prefix + rbwt_suffix);
     bwt.load(bwt_ifs);
     bwt_ifs.close();
@@ -141,7 +144,7 @@ RowBowt load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
     std::optional<MarkerArray<>> ma = static_cast<bool>(flag & LoadRbwtFlag::MA) ? std::make_optional(load_obj<MarkerArray<>>(prefix+ma_suffix)) : std::nullopt;
     std::optional<DocList> dl       = static_cast<bool>(flag & LoadRbwtFlag::DL) ? std::make_optional(load_obj<DocList>(prefix+dl_suffix))       : std::nullopt;
     std::optional<FTab> ft          = static_cast<bool>(flag & LoadRbwtFlag::FT) ? std::make_optional(load_obj<FTab>(prefix+ft_suffix))          : std::nullopt;
-    return RowBowt(std::move(bwt), std::move(ma), std::move(tsa), std::move(dl), std::move(ft));
+    return RowBowt<StringT>(std::move(bwt), std::move(ma), std::move(tsa), std::move(dl), std::move(ft));
 }
 }
 

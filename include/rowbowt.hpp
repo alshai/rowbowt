@@ -20,6 +20,7 @@ namespace rbwt {
 
 using rle_string_t = ri::rle_string_sd;
 
+template<typename RLEString=rle_string_t>
 class RowBowt {
 
     public:
@@ -29,7 +30,7 @@ class RowBowt {
     RowBowt() {
     }
 
-    RowBowt(const rle_string_t& bwt
+    RowBowt(const RLEString & bwt
             ,const std::optional<MarkerArray<>>& ma
             ,const std::optional<ToeholdSA>& tsa
             ,const std::optional<DocList>& dl
@@ -42,10 +43,9 @@ class RowBowt {
         , dl_(dl)
         , ft_(ft)
     {
-        r_ = bwt_.number_of_runs();
     }
 
-    RowBowt(rle_string_t&& bwt
+    RowBowt(RLEString && bwt
             ,std::optional<MarkerArray<>>&& ma
             ,std::optional<ToeholdSA>&& tsa
             ,std::optional<DocList>&& dl
@@ -58,7 +58,6 @@ class RowBowt {
         , dl_(std::move(dl))
         , ft_(std::move(ft))
     {
-        r_ = bwt_.number_of_runs();
     }
 
 
@@ -165,7 +164,9 @@ class RowBowt {
         std::vector<MarkerT> markers;
     };
 
-    LFData find_range_w_toehold(const std::string& query) const {
+    template<typename T = RLEString>
+    typename std::enable_if<std::is_same<T, rle_string_t>::value, LFData >::type
+    find_range_w_toehold(const std::string& query) const {
         LFData lf;
         if (!tsa_) return lf;
         uint64_t m = query.size();
@@ -218,7 +219,9 @@ class RowBowt {
     // its range, query positions, & SA sample to results.
     // Then, skip the mismatched base start procedure again from the next base over.
     // TODO: do we want to start from // mismatched base?
-    std::vector<LFData>& get_seeds_greedy_w_sample(const std::string& query, uint64_t min_length, std::vector<LFData>& lfdata) const {
+    template<typename T = RLEString>
+    typename std::enable_if<std::is_same<T, rle_string_t>::value, std::vector<LFData>& >::type
+    get_seeds_greedy_w_sample(const std::string& query, uint64_t min_length, std::vector<LFData>& lfdata) const {
         lfdata.clear();
         if (!tsa_) return lfdata;
         uint64_t m = query.size();
@@ -519,25 +522,31 @@ class RowBowt {
         fn(range, std::make_pair(m-i, seed_ei-1), mbuf);
     }
 
-    std::pair<range_t, uint64_t> LF_w_loc(const range_t range, uint8_t c, uint64_t k) const {
+    template<typename T = RLEString>
+    typename std::enable_if<std::is_same<T, rle_string_t>::value, std::pair<range_t, uint64_t>>::type
+    LF_w_loc(const range_t range, uint8_t c, uint64_t k) const {
         uint64_t nk;
         range_t nrange = LF(range, c);
         if (nrange.first <= nrange.second) {
             if (bwt_[range.second] == c) { // trivial case
-                nk = k-1;
-            } else { // need to sample again
+                nk = k - 1;
+            }
+            else { // need to sample again
                 uint64_t rnk = bwt_.rank(range.second, c) - 1;
                 uint64_t j = bwt_.select(rnk, c);
                 uint64_t run_of_j = bwt_.run_of_position(j);
                 nk = tsa_->samples_last_at(run_of_j); // TODO: rename this function?
             }
-        } else {
-            return {{1,0},0};
         }
-        return {nrange, nk};
+        else {
+            return { {1,0},0 };
+        }
+        return { nrange, nk };
     }
 
-    std::vector<LFData>& find_range_w_toehold_chkpnts(const std::string& query, uint64_t wsize, std::vector<LFData>& lfs) const {
+    template<typename T = RLEString>
+    typename std::enable_if<std::is_same<T, rle_string_t>::value, std::vector<LFData>& >::type
+    find_range_w_toehold_chkpnts(const std::string& query, uint64_t wsize, std::vector<LFData>& lfs) const {
         lfs.clear();
         if (!tsa_) return lfs;
         uint64_t m = query.size();
@@ -714,7 +723,7 @@ class RowBowt {
 
     private:
 
-    std::vector<uint64_t> build_f(const ri::rle_string_sd& bwt) const {
+    std::vector<uint64_t> build_f(const RLEString& bwt) const {
         std::vector<uint64_t> f_(256,0);
         uint64_t p = 0;
         for (size_t i = 0; i < 255; ++i) {
@@ -732,13 +741,12 @@ class RowBowt {
     }
 
 
-    rle_string_t bwt_;
+    RLEString bwt_;
     std::vector<uint64_t> f_;
     std::optional<ToeholdSA> tsa_;
     std::optional<MarkerArray<>> ma_;
     std::optional<DocList> dl_;
     std::optional<FTab> ft_;
-    uint64_t r_;
 };
 }
 
