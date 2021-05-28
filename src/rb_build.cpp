@@ -2,6 +2,8 @@
 #include <getopt.h>
 #include <string>
 #include "rowbowt_io.hpp"
+#include "rle_string.hpp"
+#include "fbb_string.hpp"
 
 /* build rl-bwt from input bwt and saves to disk */
 
@@ -13,6 +15,7 @@ void print_help() {
     fprintf(stderr, "    --tsa/-s <basename>                 build toehold suffix array\n");
     fprintf(stderr, "    --ma/-m <basename>                  build marker array\n");
     fprintf(stderr, "    --ftab/-f <basename>                construct offset table (for faster querying)\n");
+    fprintf(stderr, "    --fbb                               use fbb_string instead of rle_string\n");
     fprintf(stderr, "    <input_prefix>                   index prefix\n");
 }
 
@@ -25,12 +28,14 @@ rbwt::RowBowtConstructArgs parse_args(int argc, char** argv) {
         {"ma", required_argument, 0, 'm'},
         {"dl", required_argument, 0, 'l'},
         {"ft", required_argument, 0, 'f'},
-        {"ftab-only", no_argument, 0, 'a'}
-
+        {"ftab-only", no_argument, 0, 'a'},
+        {"fbb", no_argument, 0, 'x'}
     };
     int long_index = 0;
-    while((c = getopt_long(argc, argv, "o:k:lfsmha", long_options, &long_index)) != -1) {
+    while((c = getopt_long(argc, argv, "xo:k:lfsmha", long_options, &long_index)) != -1) {
         switch (c) {
+            case 'x':
+                args.fbb = 1; break;
             case 'o':
                 args.prefix = optarg;
                 break;
@@ -91,8 +96,9 @@ void rb_ftab(rbwt::RowBowtConstructArgs args) {
     rbwt::construct_and_serialize_ftab(args);
 }
 
+template<typename T=ri::rle_string_sd>
 void rb_build(rbwt::RowBowtConstructArgs args) {
-    rbwt::construct_and_serialize_rowbowt(args);
+    rbwt::construct_and_serialize_rowbowt<T>(args);
 }
 
 int main(int argc, char** argv) {
@@ -100,8 +106,11 @@ int main(int argc, char** argv) {
     if (args.ft_only) {
         rb_ftab(args);
     } else {
-        rb_build(args);
+        if (args.fbb) {
+            rb_build<ri::fbb_string>(args);
+        } else {
+            rb_build<ri::rle_string_sd>(args);
+        }
     }
     return 0;
 }
-

@@ -7,6 +7,7 @@
 #include <optional>
 #include "rowbowt.hpp"
 #include "rle_string.hpp"
+#include "fbb_string.hpp"
 #include "toehold_sa.hpp"
 #include "marker_array.hpp"
 #include "ftab.hpp"
@@ -42,10 +43,12 @@ struct RowBowtConstructArgs {
     int ft = 0;
     int ft_only = 0;
     size_t k = 10;
+    int fbb = 0;
 };
 
 template<typename StringT=rle_string_t>
-void construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
+typename std::enable_if<std::is_same<StringT, ri::rle_string_sd>::value, void>::type
+construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
     // std::ifstream bwt_ifs(args.bwt_fname);
     StringT bwt(args.bwt_fname);
     std::ofstream bwt_ofs(args.prefix + rbwt_suffix);
@@ -65,6 +68,41 @@ void construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
         std::ofstream tsa_ofs(args.prefix + tsa_suffix);
         tsa.serialize(tsa_ofs);
         tsa_ofs.close();
+    }
+    if (args.dl && args.dl_fname != "") {
+        std::ifstream ifs(args.dl_fname);
+        if (args.dl_fname != args.prefix + dl_suffix) {
+            std::ofstream ofs(args.prefix + dl_suffix);
+            ofs << ifs.rdbuf();
+            ofs.close();
+        }
+        ifs.close();
+    }
+    if (args.ft) {
+        rbwt::RowBowt<StringT> rb(bwt, {}, {}, {}, {});
+        FTab ftab = rb.build_ftab(args.k);
+        std::ofstream ft_ofs(args.prefix + ft_suffix);
+        ftab.serialize(ft_ofs);
+        ft_ofs.close();
+    }
+}
+
+template<typename StringT=rle_string_t>
+typename std::enable_if<std::is_same<StringT, ri::fbb_string>::value, void>::type
+construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
+    StringT bwt(args.bwt_fname);
+    std::ofstream bwt_ofs(args.prefix + rbwt_suffix);
+    bwt.serialize(bwt_ofs);
+    bwt_ofs.close();
+    if (args.ma && args.ma_fname != "") {
+        if (!file_exists(args.ma_fname)) file_ne_error(args.ma_fname);
+        MarkerArray<> ma(args.ma_fname);
+        std::ofstream ma_ofs(args.prefix + ma_suffix);
+        ma.serialize(ma_ofs);
+        ma_ofs.close();
+    }
+    if (args.tsa) {
+        std::cerr << "Warning: fbb_string does not support loading toehold suffix array\n" << std::endl;
     }
     if (args.dl && args.dl_fname != "") {
         std::ifstream ifs(args.dl_fname);

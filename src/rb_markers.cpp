@@ -10,7 +10,6 @@ extern "C" {
 #include <zlib.h>
 #ifndef AC_KSEQ_H
 #include "kseq.h"
-#include "kstring.h"
 KSEQ_INIT(gzFile, gzread);
 #endif
 }

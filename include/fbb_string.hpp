@@ -8,7 +8,7 @@
  */
 
 #ifndef FBB_STRING_HPP_
-#define FFB_STRING_HPP_
+#define FBB_STRING_HPP_
 
 #include <string>
 #include "wt_fbb.hpp"
@@ -23,6 +23,10 @@ class fbb_string {
 
     fbb_string(std::string fname) {
         std::ifstream ifs(fname);
+        if (!ifs.good()) {
+            std::cerr << "cannot read " << fname << std::endl;
+            exit(1);
+        }
         std::string s(std::istreambuf_iterator<char>(ifs), {});
         s.push_back(0);
         sdsl::construct_im(wt, s.data(), 1);

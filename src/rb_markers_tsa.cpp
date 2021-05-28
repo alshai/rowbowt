@@ -73,7 +73,7 @@ RbAlignArgs parse_args(int argc, char** argv) {
 }
 
 
-void rb_report(const rbwt::RowBowt& rbwt, const rle_window_arr<>& midx, const RbAlignArgs args, kseq_t* seq, std::vector<uint64_t>& locs) {
+void rb_report(const rbwt::RowBowt<>& rbwt, const rle_window_arr<>& midx, const RbAlignArgs args, kseq_t* seq, std::vector<uint64_t>& locs) {
     locs.clear();
     locs = rbwt.find_locs_greedy_seeding(seq->seq.s, args.wsize, args.max_hits, locs);
     std::cout << seq->name.s;
@@ -87,15 +87,15 @@ void rb_report(const rbwt::RowBowt& rbwt, const rle_window_arr<>& midx, const Rb
     std::cout << "\n";
 }
 
-rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
+rbwt::RowBowt<> load_rbwt(const RbAlignArgs args) {
     rbwt::LoadRbwtFlag flag;
     flag = flag | rbwt::LoadRbwtFlag::DL | rbwt::LoadRbwtFlag::SA;
-    rbwt::RowBowt rbwt(rbwt::load_rowbowt(args.inpre, flag));
+    rbwt::RowBowt<> rbwt(rbwt::load_rowbowt<>(args.inpre, flag));
     return rbwt;
 }
 
 void rb_locs_all(RbAlignArgs args) {
-    rbwt::RowBowt rbwt(load_rbwt(args));
+    rbwt::RowBowt<> rbwt(load_rbwt(args));
     rle_window_arr<> midx;
     std::ifstream midx_ifs(args.inpre + ".midx"); 
     midx.load(midx_ifs);
