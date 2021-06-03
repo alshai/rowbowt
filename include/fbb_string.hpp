@@ -28,9 +28,8 @@ class fbb_string {
             exit(1);
         }
         std::string s(std::istreambuf_iterator<char>(ifs), {});
-        s.push_back(0);
-        sdsl::construct_im(wt, s.data(), 1);
-        assert(wt.size()==s.size()-1);
+        // sdsl::construct_im(wt, s.data(), 1);
+        wt = wt_fbb(reinterpret_cast<uint8_t*>(s.data()), s.size());
     }
 
 

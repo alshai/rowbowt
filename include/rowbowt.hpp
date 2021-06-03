@@ -121,7 +121,7 @@ class RowBowt {
     range_t find_range(const std::string& query) const {
         range_t range = full_range();
         size_t i = 0;
-        if (ft_)
+        if (!disable_ft_ && ft_)
             std::tie(range, i) = search_ftab(query.substr(query.size() - ft_->get_k(), ft_->get_k()));
         size_t m = query.size();
         for(i; i < m && range.second>=range.first; ++i) {
@@ -399,7 +399,7 @@ class RowBowt {
         range_t prev_range = full_range();
         range_t range = full_range();
         size_t i = 0;
-        if (ft_) {
+        if (!disable_ft_ && ft_) {
             std::tie(range, i) = search_ftab(query.substr(query.size() - ft_->get_k(), ft_->get_k()));
             prev_range = range;
         }
@@ -457,7 +457,7 @@ class RowBowt {
     template<typename F>
     void get_markers_greedy_overlap_seeding(const std::string query, uint64_t wsize, uint64_t max_range, F fn) const {
         uint64_t m = query.size();
-        if (ft_) {
+        if (!ft_ || disable_ft_) {
             std::cerr << "ftab required for this function\n";
             exit(1);
         }
@@ -674,6 +674,14 @@ class RowBowt {
         ma_->load(ifs);
     }
 
+    void load_ftab(std::ifstream& ifs) {
+        ft_->load(ifs);
+    }
+
+    void set_ftab(FTab&& ftab) {
+        ft_ = std::move(ftab);
+    }
+
     /*
     void load_doc_list(std::ifstream& ifs) {
         docs_->load(ifs);
@@ -721,6 +729,14 @@ class RowBowt {
         return {full_range(), 0};
     }
 
+    void disable_ft() {
+        disable_ft_ = true;
+    }
+
+    void enable_ft() {
+        disable_ft_ = false;
+    }
+
     private:
 
     std::vector<uint64_t> build_f(const RLEString& bwt) const {
@@ -747,6 +763,7 @@ class RowBowt {
     std::optional<MarkerArray<>> ma_;
     std::optional<DocList> dl_;
     std::optional<FTab> ft_;
+    bool disable_ft_ = false;
 };
 }
 
