@@ -10,7 +10,6 @@ extern "C" {
 #include <zlib.h>
 #ifndef AC_KSEQ_H
 #include "kseq.h"
-#include "kstring.h"
 KSEQ_INIT(gzFile, gzread);
 #endif
 }
@@ -128,12 +127,6 @@ char comp_tab[] = {
 
 
 struct KSeqString {
-    void load(kseq_t* s) {
-        seq.clear(); name.clear(); qual.clear();
-        seq.assign(s->seq.s, s->seq.l);
-        name.assign(s->name.s, s->name.l);
-        qual.assign(s->qual.s, s->qual.l);
-    }
     KSeqString() {}
     KSeqString(kseq_t* s) {
         load(s);
@@ -144,6 +137,27 @@ struct KSeqString {
         qual = rhs.qual;
         return *this;
     }
+    void load(kseq_t* s) {
+        seq.clear(); name.clear(); qual.clear();
+        seq.assign(s->seq.s, s->seq.l);
+        name.assign(s->name.s, s->name.l);
+        qual.assign(s->qual.s, s->qual.l);
+    }
+    void revc_in_place() {
+        int c0, c1;
+        for (size_t i = 0; i < seq.size()>>1; ++i) { // reverse complement sequence
+            c0 = comp_tab[(int)seq[i]];
+            c1 = comp_tab[(int)seq[seq.size() - 1 - i]];
+            seq[i] = c1;
+            seq[seq.size() - 1 - i] = c0;
+        }
+        if (seq.size() & 1) // complement the remaining base
+            seq[seq.size()>>1] = comp_tab[(int)seq[seq.size()>>1]];
+        if (qual.size()) {
+            for (size_t i = 0; i < qual.size()>>1; ++i) // reverse quality
+                c0 = qual[i], qual[i] = qual[qual.size() - 1 - i], qual[qual.size() - 1 - i] = c0;
+        }
+    }
     std::string seq;
     std::string name;
     std::string qual;
@@ -152,21 +166,6 @@ struct KSeqString {
 /* code copied from seqtk
  * https://github.com/lh3/seqtk/blob/7c04ce7898ad5909bd309c6ba3cd9c3bd0651f0e/seqtk.c#L1464
  */
-void revc_in_place(KSeqString& seq) {
-    int c0, c1;
-    for (size_t i = 0; i < seq.seq.size()>>1; ++i) { // reverse complement sequence
-        c0 = comp_tab[(int)seq.seq[i]];
-        c1 = comp_tab[(int)seq.seq[seq.seq.size() - 1 - i]];
-        seq.seq[i] = c1;
-        seq.seq[seq.seq.size() - 1 - i] = c0;
-    }
-    if (seq.seq.size() & 1) // complement the remaining base
-        seq.seq[seq.seq.size()>>1] = comp_tab[(int)seq.seq[seq.seq.size()>>1]];
-    if (seq.qual.size()) {
-        for (size_t i = 0; i < seq.qual.size()>>1; ++i) // reverse quality
-            c0 = seq.qual[i], seq.qual[i] = seq.qual[seq.qual.size() - 1 - i], seq.qual[seq.qual.size() - 1 - i] = c0;
-    }
-}
 
 bool marker_cmp(MarkerT a, MarkerT b) {
     if (get_seq(a) == get_seq(b) && get_pos(a) == get_pos(b)) {
@@ -179,14 +178,58 @@ bool marker_cmp(MarkerT a, MarkerT b) {
 }
 
 
+struct MarkerSeed {
+    std::string name;
+    bool is_fwd;
+    size_t range_size;
+    size_t query_start;
+    size_t query_len;
+    std::vector<MarkerT> markers;
+    void print_buf(std::ostream& os) {
+        os << name << " " << range_size << " " << (is_fwd ? "+" : "-");
+        os << " " << query_start << " " << query_len;
+        if (markers.size()) {
+            for (auto m: markers) {
+                os << " " << get_seq(m) << "/" <<  get_pos(m) << "/" << static_cast<int>(get_allele(m));
+            }
+        } else os << " .";
+        os << std::endl;
+    }
+};
+
+
+class SeedVec : public std::vector<MarkerSeed> {
+    /* true => fwd, false => rev */
+    bool best_strand_by_len() {
+        auto max_seed = std::max_element(this->begin(), this->end(),
+                 [](const MarkerSeed& l, const MarkerSeed& r) {
+                    return l.query_len < r.query_len;
+                });
+        return max_seed->is_fwd;
+    }
+    std::vector<MarkerT>& collect_markers_by_strand(bool strand, std::vector<MarkerT>& markers) {
+        markers.clear();
+        for (const auto& s: *this) {
+            if (strand == s.is_fwd) {
+                std::copy(s.markers.begin(), s.markers.end(), std::back_inserter(markers));
+            }
+        }
+        // remove duplicates
+        std::sort(markers.begin(), markers.end(), marker_cmp);
+        markers.erase(std::unique(markers.begin(), markers.end()), markers.end());
+        return markers;
+    }
+};
+
+
 
 class ThreadPool {
     public:
-    ThreadPool(int n, int m, const rbwt::RowBowt& r, const RbAlignArgs& a) 
+    ThreadPool(int n, int m, const rbwt::RowBowt& r, const RbAlignArgs& a)
         : nthreads(n)
         , max_tasks(m)
         , rbwt(r)
-        , args(a) 
+        , args(a)
     {
         for (int i = 0; i < n; ++i) {
             make_thread(i);
@@ -219,21 +262,31 @@ class ThreadPool {
     private:
     void make_thread(int i) {
         auto worker = [this, i]() {
-            std::vector<MarkerT> markers;
-            KSeqString seq;
+            KSeqString fwd_seq;
+            KSeqString revc_seq;
+            SeedVec seeds;
             std::ostringstream out_buf;
+            std::vector<MarkerT> markers;
             int j = 0;
             bool rev;
             auto out_fn = [&](rbwt::RowBowt::range_t p, std::pair<size_t, size_t> q, std::vector<MarkerT> mbuf) {
-                size_t qstart = rev ? seq.seq.size()-q.first-1 : q.first;
-                out_buf << seq.name << " " << p.second-p.first+1 << " " << (rev ? "-" : "+") << " " << q.first << " " << q.second << " " << q.second-q.first+1;
-                if (p.second - p.first + 1 >= this->args.min_range && mbuf.size()) {
-                    for (auto m: mbuf) {
-                        out_buf << " " << get_seq(m) << "/" <<  get_pos(m) << "/" << static_cast<int>(get_allele(m));
-                        markers.push_back(m);
+                auto& seq = rev ? revc_seq : fwd_seq;
+                // terr << seq.name << " " << p.first << " " << p.second << " " << p.second-p.first+1 << std::endl;
+                if (p.second < p.first) return;
+                MarkerSeed ms;
+                ms.name = seq.name;
+                ms.is_fwd = !rev;
+                ms.range_size = p.second-p.first+1;
+                ms.query_start = rev ? seq.seq.size()-q.first-1 : q.first;
+                ms.query_len   = q.second-q.first+1;
+                if (ms.range_size >= this->args.min_range && mbuf.size()) {
+                    for (const auto m: mbuf) {
+                        ms.markers.push_back(m);
                     }
-                }  else out_buf << " .";
-                out_buf << std::endl;
+                    std::sort(ms.markers.begin(), ms.markers.end(), marker_cmp);
+                    ms.markers.erase(std::unique(ms.markers.begin(), ms.markers.end()), ms.markers.end());
+                }
+                seeds.push_back(ms);
             };
             while (true) {
                 // let Pool know that a thread is free to take a task
@@ -242,21 +295,25 @@ class ThreadPool {
                     this->task_status.wait(lock, [this]() {return this->stop || !this->seq_queue.empty();});
                     if (this->stop && this->seq_queue.empty()) break;
                     // copy over data
-                    seq = std::move(seq_queue.front());
+                    fwd_seq = std::move(seq_queue.front());
                     seq_queue.pop();
                     queue_status.notify_one();
                 }
-                markers.clear();
-                // do work on data here
-                for (auto& c: seq.seq) {
+                seeds.clear();
+                // prepare fwd and revc
+                for (auto& c: fwd_seq.seq) {
                     c = seq_ntoa_table[c];
                 }
+                revc_seq = fwd_seq;
+                revc_seq.revc_in_place();
                 rev = false;
-                this->rbwt.get_markers_greedy_seeding(seq.seq, this->args.wsize, this->args.max_range, out_fn);
-                revc_in_place(seq);
+                this->rbwt.get_markers_greedy_seeding(fwd_seq.seq, this->args.wsize, this->args.max_range, out_fn);
                 rev = true;
-                this->rbwt.get_markers_greedy_seeding(seq.seq, this->args.wsize, this->args.max_range, out_fn);
+                this->rbwt.get_markers_greedy_seeding(revc_seq.seq, this->args.wsize, this->args.max_range, out_fn);
                 j += 1;
+                for (auto& s: seeds) {
+                    s.print_buf(out_buf);
+                }
                 if (out_buf.tellp() > 4096) {
                     tout << out_buf.str();
                     out_buf.str(std::string());

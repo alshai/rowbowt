@@ -444,7 +444,7 @@ class RowBowt {
         }
 
         // this is when the whole read is done and a seed hasn't finished yet
-        if (seed_ei-(m-i) >= wsize) {
+        if (range.second>=range.first && seed_ei-(m-i) >= wsize) {
             update_mbuf(range);
         }
         fn(range, std::make_pair(m-i, seed_ei-1), mbuf);
