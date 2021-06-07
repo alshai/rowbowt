@@ -40,59 +40,9 @@ class rle_string{
     public:
 
     rle_string(){}
-    /*
-     * constructor: build structure on the input string
-     * \param input the input string without 0x0 bytes in it.
-     * \param B block size. The main sparse bitvector has R/B bits set (R being number of runs)
-     *
-     */
-    rle_string(std::string &input, uint64_t B = 2){
-        assert(not contains0(input));
-        this->B = B;
-        n = input.size();
-        R = 0;
-        auto runs_per_letter_bv = std::vector<std::vector<bool> >(256);
-        //runs in main bitvector
-        std::vector<bool> runs_bv;
-        std::string run_heads_s;
-        uint8_t last_c = input[0];
-        for(uint64_t i=1;i<input.size();++i){
-            if(uint8_t(input[i]) != last_c){
-                run_heads_s.push_back(last_c);
-                runs_per_letter_bv[last_c].push_back(true);
-                last_c = input[i];
-                //push back a bit set only at the end of a block
-                runs_bv.push_back(R%B==B-1);
-                R++;
-            }else{
-                runs_bv.push_back(false);
-                runs_per_letter_bv[last_c].push_back(false);
-            }
-        }
-        run_heads_s.push_back(last_c);
-        runs_per_letter_bv[last_c].push_back(true);
-        runs_bv.push_back(false);
-        R++;
-        assert(run_heads_s.size()==R);
-        assert(R==count_runs(input));
-        //std::cout << "runs in BWT(input) = " << count_runs(input) << std::endl;
-        //std::cout << "runs in rle bwt = " << R << std::endl << std::endl;
-        //now compact structures
-        assert(runs_bv.size()==input.size());
-        uint64_t t = 0;
-        for(uint64_t i=0;i<256;++i)
-            t += runs_per_letter_bv[i].size();
-        assert(t==input.size());
-        runs = sparse_bitvector_t(runs_bv);
-        //a fast direct array: char -> bitvector.
-        runs_per_letter = std::vector<sparse_bitvector_t>(256);
-        for(uint64_t i=0;i<256;++i)
-            runs_per_letter[i] = sparse_bitvector_t(runs_per_letter_bv[i]);
-        run_heads = string_t(run_heads_s);
-        assert(run_heads.size()==R);
-    }
 
-    rle_string(std::ifstream& ifs, uint64_t B = 2) {
+    rle_string(std::string fname, uint64_t B = 2) {
+        std::ifstream ifs(fname);
         ifs.clear();
         ifs.seekg(0);
         // assert(not contains0(input)); // We're hacking the 0 away :)

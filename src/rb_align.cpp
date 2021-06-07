@@ -76,13 +76,13 @@ RbAlignArgs parse_args(int argc, char** argv) {
 
 
 struct RowBowtRet {
-    rbwt::RowBowt::range_t r;
+    typename rbwt::RowBowt<>::range_t r;
     uint64_t ts; // toehold sample
     std::vector<uint64_t> locs;
     std::vector<MarkerT> markers;
 };
 
-RowBowtRet rb_get_range(const rbwt::RowBowt& rbwt, std::string query, bool sa) {
+RowBowtRet rb_get_range(const rbwt::RowBowt<>& rbwt, std::string query, bool sa) {
     RowBowtRet ret;
     if (sa)  {
         auto range = rbwt.find_range_w_toehold(query);
@@ -95,7 +95,7 @@ RowBowtRet rb_get_range(const rbwt::RowBowt& rbwt, std::string query, bool sa) {
     return ret;
 }
 
-void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq) {
+void rb_report(const rbwt::RowBowt<>& rbwt, const RbAlignArgs args, kseq_t* seq) {
     std::cout << seq->name.s << " ";
     RowBowtRet ret = rb_get_range(rbwt, seq->seq.s, args.sam); // TODO: other options could also potentially trigger SA
     std::cout << "(" << ret.r.first << "," << ret.r.second << "), count=" << ret.r.second-ret.r.first + 1 << "\n";
@@ -123,16 +123,16 @@ void rb_report(const rbwt::RowBowt& rbwt, const RbAlignArgs args, kseq_t* seq) {
     }
 }
 
-rbwt::RowBowt load_rbwt(const RbAlignArgs args) {
+rbwt::RowBowt<> load_rbwt(const RbAlignArgs args) {
     rbwt::LoadRbwtFlag flag;
     if (args.sam) flag = flag | rbwt::LoadRbwtFlag::SA | rbwt::LoadRbwtFlag::DL;
     if (args.markers) flag = flag | rbwt::LoadRbwtFlag::MA;
-    rbwt::RowBowt rbwt(rbwt::load_rowbowt(args.inpre, flag));
+    rbwt::RowBowt<> rbwt(rbwt::load_rowbowt<>(args.inpre, flag));
     return rbwt;
 }
 
 void rb_align_all(RbAlignArgs args) {
-    rbwt::RowBowt rbwt(load_rbwt(args));
+    rbwt::RowBowt<> rbwt(load_rbwt(args));
     int err, nreads = 0, noccs = 0;
     gzFile fq_fp(gzopen(args.fastq_fname.data(), "r"));
     if (fq_fp == NULL) {

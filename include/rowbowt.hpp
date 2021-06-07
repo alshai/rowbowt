@@ -20,6 +20,7 @@ namespace rbwt {
 
 using rle_string_t = ri::rle_string_sd;
 
+template<typename RLEString=rle_string_t>
 class RowBowt {
 
     public:
@@ -29,7 +30,7 @@ class RowBowt {
     RowBowt() {
     }
 
-    RowBowt(const rle_string_t& bwt
+    RowBowt(const RLEString & bwt
             ,const std::optional<MarkerArray<>>& ma
             ,const std::optional<ToeholdSA>& tsa
             ,const std::optional<DocList>& dl
@@ -42,10 +43,9 @@ class RowBowt {
         , dl_(dl)
         , ft_(ft)
     {
-        r_ = bwt_.number_of_runs();
     }
 
-    RowBowt(rle_string_t&& bwt
+    RowBowt(RLEString && bwt
             ,std::optional<MarkerArray<>>&& ma
             ,std::optional<ToeholdSA>&& tsa
             ,std::optional<DocList>&& dl
@@ -58,7 +58,6 @@ class RowBowt {
         , dl_(std::move(dl))
         , ft_(std::move(ft))
     {
-        r_ = bwt_.number_of_runs();
     }
 
 
@@ -122,7 +121,7 @@ class RowBowt {
     range_t find_range(const std::string& query) const {
         range_t range = full_range();
         size_t i = 0;
-        if (ft_)
+        if (!disable_ft_ && ft_)
             std::tie(range, i) = search_ftab(query.substr(query.size() - ft_->get_k(), ft_->get_k()));
         size_t m = query.size();
         for(i; i < m && range.second>=range.first; ++i) {
@@ -165,7 +164,9 @@ class RowBowt {
         std::vector<MarkerT> markers;
     };
 
-    LFData find_range_w_toehold(const std::string& query) const {
+    template<typename T = RLEString>
+    typename std::enable_if<std::is_same<T, rle_string_t>::value, LFData >::type
+    find_range_w_toehold(const std::string& query) const {
         LFData lf;
         if (!tsa_) return lf;
         uint64_t m = query.size();
@@ -218,7 +219,9 @@ class RowBowt {
     // its range, query positions, & SA sample to results.
     // Then, skip the mismatched base start procedure again from the next base over.
     // TODO: do we want to start from // mismatched base?
-    std::vector<LFData>& get_seeds_greedy_w_sample(const std::string& query, uint64_t min_length, std::vector<LFData>& lfdata) const {
+    template<typename T = RLEString>
+    typename std::enable_if<std::is_same<T, rle_string_t>::value, std::vector<LFData>& >::type
+    get_seeds_greedy_w_sample(const std::string& query, uint64_t min_length, std::vector<LFData>& lfdata) const {
         lfdata.clear();
         if (!tsa_) return lfdata;
         uint64_t m = query.size();
@@ -396,7 +399,7 @@ class RowBowt {
         range_t prev_range = full_range();
         range_t range = full_range();
         size_t i = 0;
-        if (ft_) {
+        if (!disable_ft_ && ft_) {
             std::tie(range, i) = search_ftab(query.substr(query.size() - ft_->get_k(), ft_->get_k()));
             prev_range = range;
         }
@@ -451,25 +454,99 @@ class RowBowt {
     }
 
 
-    std::pair<range_t, uint64_t> LF_w_loc(const range_t range, uint8_t c, uint64_t k) const {
+    template<typename F>
+    void get_markers_greedy_overlap_seeding(const std::string query, uint64_t wsize, uint64_t max_range, F fn) const {
+        uint64_t m = query.size();
+        if (!ft_ || disable_ft_) {
+            std::cerr << "ftab required for this function\n";
+            exit(1);
+        }
+        if (ft_->get_k()-1 > wsize) {
+            std::cerr << "ERROR: wsize cannot be greater than or equal to ftab k size. please rebuild ftab with smaller k\n";
+            exit(1);
+        }
+        range_t prev_range = full_range();
+        range_t range = full_range();
+        size_t i = 0;
+        std::tie(range, i) = search_ftab(query.substr(query.size() - ft_->get_k(), ft_->get_k()));
+        prev_range = range;
+        uint64_t window_ei = m, seed_ei = m;
+        std::vector<MarkerT> mbuf;
+        // input: range, start w/i query, end (excl) w/i query.
+        auto update_mbuf = [&](range_t r) {
+            if (r.second-r.first+1 <= max_range) {
+                mbuf = markers_at(r, mbuf);
+            }
+        };
+        for (i; i < query.size(); ++i) {
+            range = LF(range, query[m-i-1]);
+            if (range.second < range.first) { // this is when the seed fails
+                if (seed_ei-(m-i) >= wsize) { // check markers here if seed is large enough, regardless of window length
+                    update_mbuf(prev_range);
+                } // then reset the seed, skipping query[m-i-1]
+                fn(prev_range, std::make_pair(m-i, seed_ei-1), mbuf);
+                mbuf.clear();
+                prev_range = full_range();
+                // seed_ei and window_ei are both exclusive right limits
+                // TODO: reset i to ft_->get_k() bases back
+                i = i+1>=ft_->get_k() ? i+1-ft_->get_k() : i;
+                seed_ei = m-i-1;
+                window_ei = m-i-1;
+                if (m-i-1 >= ft_->get_k()) { // keep trying kmers, shifting left by one, until we find a match
+                    for (; m-i-1 >= ft_->get_k(); ++i) {
+                        seed_ei = m-i-1;
+                        window_ei = m-i-1;
+                        std::tie(range, std::ignore) = search_ftab(query.substr(m-i-1-ft_->get_k(), ft_->get_k()));
+                        if (range.first <= range.second) {
+                            i += ft_->get_k();  // i will be just before kmer seed next iter
+                            prev_range = range;
+                            break;
+                        } else range = full_range();
+                    }
+                } else {
+                    range = full_range();
+                }
+            } else { // this is for each window
+                if (window_ei-(m-i-1) >= wsize) {
+                    update_mbuf(range);
+                    window_ei = m-i-1; // current position is now window end (exclusive)
+                }
+                prev_range = range;
+            }
+        }
+
+        // this is when the whole read is done and a seed hasn't finished yet
+        if (seed_ei-(m-i) >= wsize) {
+            update_mbuf(range);
+        }
+        fn(range, std::make_pair(m-i, seed_ei-1), mbuf);
+    }
+
+    template<typename T = RLEString>
+    typename std::enable_if<std::is_same<T, rle_string_t>::value, std::pair<range_t, uint64_t>>::type
+    LF_w_loc(const range_t range, uint8_t c, uint64_t k) const {
         uint64_t nk;
         range_t nrange = LF(range, c);
         if (nrange.first <= nrange.second) {
             if (bwt_[range.second] == c) { // trivial case
-                nk = k-1;
-            } else { // need to sample again
+                nk = k - 1;
+            }
+            else { // need to sample again
                 uint64_t rnk = bwt_.rank(range.second, c) - 1;
                 uint64_t j = bwt_.select(rnk, c);
                 uint64_t run_of_j = bwt_.run_of_position(j);
                 nk = tsa_->samples_last_at(run_of_j); // TODO: rename this function?
             }
-        } else {
-            return {{1,0},0};
         }
-        return {nrange, nk};
+        else {
+            return { {1,0},0 };
+        }
+        return { nrange, nk };
     }
 
-    std::vector<LFData>& find_range_w_toehold_chkpnts(const std::string& query, uint64_t wsize, std::vector<LFData>& lfs) const {
+    template<typename T = RLEString>
+    typename std::enable_if<std::is_same<T, rle_string_t>::value, std::vector<LFData>& >::type
+    find_range_w_toehold_chkpnts(const std::string& query, uint64_t wsize, std::vector<LFData>& lfs) const {
         lfs.clear();
         if (!tsa_) return lfs;
         uint64_t m = query.size();
@@ -597,6 +674,14 @@ class RowBowt {
         ma_->load(ifs);
     }
 
+    void load_ftab(std::ifstream& ifs) {
+        ft_->load(ifs);
+    }
+
+    void set_ftab(FTab&& ftab) {
+        ft_ = std::move(ftab);
+    }
+
     /*
     void load_doc_list(std::ifstream& ifs) {
         docs_->load(ifs);
@@ -644,9 +729,17 @@ class RowBowt {
         return {full_range(), 0};
     }
 
+    void disable_ft() {
+        disable_ft_ = true;
+    }
+
+    void enable_ft() {
+        disable_ft_ = false;
+    }
+
     private:
 
-    std::vector<uint64_t> build_f(const ri::rle_string_sd& bwt) const {
+    std::vector<uint64_t> build_f(const RLEString& bwt) const {
         std::vector<uint64_t> f_(256,0);
         uint64_t p = 0;
         for (size_t i = 0; i < 255; ++i) {
@@ -664,13 +757,13 @@ class RowBowt {
     }
 
 
-    rle_string_t bwt_;
+    RLEString bwt_;
     std::vector<uint64_t> f_;
     std::optional<ToeholdSA> tsa_;
     std::optional<MarkerArray<>> ma_;
     std::optional<DocList> dl_;
     std::optional<FTab> ft_;
-    uint64_t r_;
+    bool disable_ft_ = false;
 };
 }
 

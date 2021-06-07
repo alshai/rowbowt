@@ -7,6 +7,7 @@
 #include <optional>
 #include "rowbowt.hpp"
 #include "rle_string.hpp"
+#include "fbb_string.hpp"
 #include "toehold_sa.hpp"
 #include "marker_array.hpp"
 #include "ftab.hpp"
@@ -42,11 +43,14 @@ struct RowBowtConstructArgs {
     int ft = 0;
     int ft_only = 0;
     size_t k = 10;
+    int fbb = 0;
 };
 
-void construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
-    std::ifstream bwt_ifs(args.bwt_fname);
-    rle_string_t bwt(bwt_ifs);
+template<typename StringT=rle_string_t>
+typename std::enable_if<std::is_same<StringT, ri::rle_string_sd>::value, void>::type
+construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
+    // std::ifstream bwt_ifs(args.bwt_fname);
+    StringT bwt(args.bwt_fname);
     std::ofstream bwt_ofs(args.prefix + rbwt_suffix);
     bwt.serialize(bwt_ofs);
     bwt_ofs.close();
@@ -75,7 +79,7 @@ void construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
         ifs.close();
     }
     if (args.ft) {
-        rbwt::RowBowt rb(bwt, {}, {}, {}, {});
+        rbwt::RowBowt<StringT> rb(bwt, {}, {}, {}, {});
         FTab ftab = rb.build_ftab(args.k);
         std::ofstream ft_ofs(args.prefix + ft_suffix);
         ftab.serialize(ft_ofs);
@@ -83,18 +87,54 @@ void construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
     }
 }
 
+template<typename StringT=rle_string_t>
+typename std::enable_if<std::is_same<StringT, ri::fbb_string>::value, void>::type
+construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
+    StringT bwt(args.bwt_fname);
+    std::ofstream bwt_ofs(args.prefix + rbwt_suffix);
+    bwt.serialize(bwt_ofs);
+    bwt_ofs.close();
+    if (args.ma && args.ma_fname != "") {
+        if (!file_exists(args.ma_fname)) file_ne_error(args.ma_fname);
+        MarkerArray<> ma(args.ma_fname);
+        std::ofstream ma_ofs(args.prefix + ma_suffix);
+        ma.serialize(ma_ofs);
+        ma_ofs.close();
+    }
+    if (args.tsa) {
+        std::cerr << "Warning: fbb_string does not support loading toehold suffix array\n" << std::endl;
+    }
+    if (args.dl && args.dl_fname != "") {
+        std::ifstream ifs(args.dl_fname);
+        if (args.dl_fname != args.prefix + dl_suffix) {
+            std::ofstream ofs(args.prefix + dl_suffix);
+            ofs << ifs.rdbuf();
+            ofs.close();
+        }
+        ifs.close();
+    }
+    if (args.ft) {
+        rbwt::RowBowt<StringT> rb(bwt, {}, {}, {}, {});
+        FTab ftab = rb.build_ftab(args.k);
+        std::ofstream ft_ofs(args.prefix + ft_suffix);
+        ftab.serialize(ft_ofs);
+        ft_ofs.close();
+    }
+}
+
+template<typename StringT=rle_string_t>
 void construct_and_serialize_ftab(RowBowtConstructArgs args) {
     std::ifstream rbwt_ifs(args.prefix + rbwt_suffix);
-    rbwt::RowBowt rb;
-    rle_string_t bwt;
+    rbwt::RowBowt<StringT> rb;
+    StringT bwt;
     if (!rbwt_ifs.good())  {
-        std::ifstream bwt_ifs(args.bwt_fname);
-        bwt = rle_string_t(bwt_ifs);
+        // std::ifstream bwt_ifs(args.bwt_fname);
+        bwt = StringT(args.bwt_fname);
     } else {
         std::cerr << "loading rbwt file" << std::endl;
         bwt.load(rbwt_ifs);
     }
-    rb = rbwt::RowBowt(bwt, {}, {}, {}, {});
+    rb = rbwt::RowBowt<StringT>(bwt, {}, {}, {}, {});
     FTab ftab = rb.build_ftab(args.k);
     std::ofstream ft_ofs(args.prefix + ft_suffix);
     ftab.serialize(ft_ofs);
@@ -131,8 +171,9 @@ T load_obj(std::string fname) {
 
 }
 
-RowBowt load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
-    rle_string_t bwt;
+template<typename StringT=rle_string_t>
+RowBowt<StringT> load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
+    StringT bwt;
     std::ifstream bwt_ifs(prefix + rbwt_suffix);
     bwt.load(bwt_ifs);
     bwt_ifs.close();
@@ -141,7 +182,7 @@ RowBowt load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
     std::optional<MarkerArray<>> ma = static_cast<bool>(flag & LoadRbwtFlag::MA) ? std::make_optional(load_obj<MarkerArray<>>(prefix+ma_suffix)) : std::nullopt;
     std::optional<DocList> dl       = static_cast<bool>(flag & LoadRbwtFlag::DL) ? std::make_optional(load_obj<DocList>(prefix+dl_suffix))       : std::nullopt;
     std::optional<FTab> ft          = static_cast<bool>(flag & LoadRbwtFlag::FT) ? std::make_optional(load_obj<FTab>(prefix+ft_suffix))          : std::nullopt;
-    return RowBowt(std::move(bwt), std::move(ma), std::move(tsa), std::move(dl), std::move(ft));
+    return RowBowt<StringT>(std::move(bwt), std::move(ma), std::move(tsa), std::move(dl), std::move(ft));
 }
 }
 

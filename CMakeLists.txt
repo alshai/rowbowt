@@ -9,18 +9,19 @@ endif()
 project (rowbowt)
 
 find_library(LIB_HTS hts)
+
+# GoogleTest requires at least C++11
 set(CMAKE_CXX_STANDARD 17)
 
-
-set(CMAKE_CXX_STANDARD 17)
 include(FetchContent)
 FetchContent_Declare(
   googletest
-  URL https://github.com/google/googletest/archive/6c5c4554ac218a8e19168edc121b1ad232015185.zip
+  URL https://github.com/google/googletest/archive/9c047902ac8843cd6f972ae9ff472f2baf790879.zip
 )
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
-include(CTest)
-enable_testing()
+
 
 set(CMAKE_CXX_FLAGS "--std=c++17 -D__STDC_FORMAT_MACROS")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb -g -march=native")
@@ -31,18 +32,20 @@ include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/sdsl-lite/include)
 include_directories(${PROJECT_SOURCE_DIR}/pfbwt-f/include)
+include_directories(${PROJECT_SOURCE_DIR}/faster-minuter/include)
 
 add_subdirectory(pfbwt-f)
 # add_subdirectory(${PROJECT_SOURCE_DIR}/tests)
 
 message("Building in ${CMAKE_BUILD_TYPE} mode")
 
+enable_testing()
 add_executable(rb_build src/rb_build.cpp)
 add_executable(rb_align src/rb_align.cpp)
 add_executable(rb_markers src/rb_markers.cpp)
 add_executable(rb_locs src/rb_markers_tsa.cpp)
 add_executable(build_midx src/build_midx.cpp)
-add_executable(rb_tests tests/gtest.cpp)
+add_executable(rb_tests tests/rb_tests.cpp)
 target_link_libraries(rb_align z)
 target_link_libraries(rb_markers z pthread)
 target_link_libraries(rb_locs z)
