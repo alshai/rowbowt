@@ -11,6 +11,7 @@
 #define FBB_STRING_HPP_
 
 #include <string>
+#include "sdsl/int_vector_buffer.hpp"
 #include "wt_fbb.hpp"
 
 namespace ri {
@@ -22,14 +23,15 @@ class fbb_string {
     fbb_string() {}
 
     fbb_string(std::string fname) {
-        std::ifstream ifs(fname);
+        std::ifstream ifs(fname, std::ios_base::ate);
         if (!ifs.good()) {
             std::cerr << "cannot read " << fname << std::endl;
             exit(1);
         }
-        std::string s(std::istreambuf_iterator<char>(ifs), {});
-        // sdsl::construct_im(wt, s.data(), 1);
-        wt = wt_fbb(reinterpret_cast<uint8_t*>(s.data()), s.size());
+        size_t len = ifs.tellg();
+        ifs.close();
+        auto sbuf = sdsl::int_vector_buffer<8>(fname, std::ios::in, 1024*1024, 8, true);
+        wt = wt_fbb(sbuf, len);
     }
 
 
