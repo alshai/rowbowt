@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <getopt.h>
 #include <string>
+#include <chrono>
 extern "C" {
 #include <zlib.h>
 #ifndef AC_KSEQ_H
@@ -10,6 +11,8 @@ KSEQ_INIT(gzFile, gzread);
 }
 #include "rowbowt.hpp"
 #include "rowbowt_io.hpp"
+#include "fbb_string.hpp"
+#include "rle_string.hpp"
 
 struct RbAlignArgs {
     std::string inpre = "";
@@ -17,6 +20,7 @@ struct RbAlignArgs {
     std::string outpre = "";
     int sam = 0;
     int markers = 0;
+    int fbb = 0;
 };
 
 void print_help() {
@@ -25,6 +29,7 @@ void print_help() {
     fprintf(stderr, "    --output_prefix/-o <basename>    output prefix\n");
     fprintf(stderr, "    --markers/-m <basename>          print markers to <output_prefix>.markers\n");
     fprintf(stderr, "    --sam/-s <basename>              print locations to <output_prefix>.sam\n");
+    fprintf(stderr, "    --fbb                            index is based on wt-fbb\n");
     fprintf(stderr, "    <input_prefix>                   index prefix\n");
     fprintf(stderr, "    <input_fastq>                    input fastq\n");
 }
@@ -36,11 +41,15 @@ RbAlignArgs parse_args(int argc, char** argv) {
     static struct option long_options[] {
         {"output_prefix", required_argument, 0, 'o'},
         {"markers", required_argument, 0, 'm'}, // outputs markers
-        {"sam", required_argument, 0, 's'} // output locations in SAM format
+        {"sam", required_argument, 0, 's'}, // output locations in SAM format
+        {"fbb", no_argument, 0, 'f'} // output locations in SAM format
     };
     int long_index = 0;
     while((c = getopt_long(argc, argv, "o:smh", long_options, &long_index)) != -1) {
         switch (c) {
+            case 'f':
+                args.fbb = 1;
+                break;
             case 'o':
                 args.outpre = optarg;
                 break;
@@ -75,15 +84,18 @@ RbAlignArgs parse_args(int argc, char** argv) {
 }
 
 
+template<typename StringT>
 struct RowBowtRet {
-    typename rbwt::RowBowt<>::range_t r;
+    typename rbwt::RowBowt<StringT>::range_t r;
     uint64_t ts; // toehold sample
     std::vector<uint64_t> locs;
     std::vector<MarkerT> markers;
 };
 
-RowBowtRet rb_get_range(const rbwt::RowBowt<>& rbwt, std::string query, bool sa) {
-    RowBowtRet ret;
+template<typename StringT>
+typename std::enable_if<std::is_same<StringT,ri::rle_string_sd>::value, RowBowtRet<StringT> >::type
+rb_get_range(const rbwt::RowBowt<StringT>& rbwt, std::string query, bool sa) {
+    RowBowtRet<StringT> ret;
     if (sa)  {
         auto range = rbwt.find_range_w_toehold(query);
         ret.r = range.rn;
@@ -95,9 +107,18 @@ RowBowtRet rb_get_range(const rbwt::RowBowt<>& rbwt, std::string query, bool sa)
     return ret;
 }
 
-void rb_report(const rbwt::RowBowt<>& rbwt, const RbAlignArgs args, kseq_t* seq) {
+template<typename StringT>
+typename std::enable_if<std::is_same<StringT,ri::fbb_string>::value, RowBowtRet<StringT> >::type
+rb_get_range(const rbwt::RowBowt<StringT>& rbwt, std::string query, bool sa) {
+    RowBowtRet<StringT> ret;
+    ret.r = rbwt.find_range(query);
+    return ret;
+}
+
+template<typename StringT>
+void rb_report(const rbwt::RowBowt<StringT>& rbwt, const RbAlignArgs args, kseq_t* seq) {
     std::cout << seq->name.s << " ";
-    RowBowtRet ret = rb_get_range(rbwt, seq->seq.s, args.sam); // TODO: other options could also potentially trigger SA
+    RowBowtRet<StringT> ret = rb_get_range<StringT>(rbwt, seq->seq.s, args.sam); // TODO: other options could also potentially trigger SA
     std::cout << "(" << ret.r.first << "," << ret.r.second << "), count=" << ret.r.second-ret.r.first + 1 << "\n";
     if (args.sam) {
         // TODO: output SAM line to args.output + SAM
@@ -123,16 +144,27 @@ void rb_report(const rbwt::RowBowt<>& rbwt, const RbAlignArgs args, kseq_t* seq)
     }
 }
 
-rbwt::RowBowt<> load_rbwt(const RbAlignArgs args) {
-    rbwt::LoadRbwtFlag flag;
-    if (args.sam) flag = flag | rbwt::LoadRbwtFlag::SA | rbwt::LoadRbwtFlag::DL;
-    if (args.markers) flag = flag | rbwt::LoadRbwtFlag::MA;
-    rbwt::RowBowt<> rbwt(rbwt::load_rowbowt<>(args.inpre, flag));
+template<typename StringT>
+rbwt::RowBowt<StringT> load_rbwt(const RbAlignArgs args) {
+    rbwt::LoadRbwtFlag flag = static_cast<rbwt::LoadRbwtFlag>(0);
+    if (args.sam) {
+        std::cerr << "will load SA and DA" << std::endl;
+        flag = flag | rbwt::LoadRbwtFlag::SA | rbwt::LoadRbwtFlag::DL;
+    }
+    if (args.markers) {
+        std::cerr << "will load SA and DA" << std::endl;
+        flag = flag | rbwt::LoadRbwtFlag::MA;
+    }
+    rbwt::RowBowt<StringT> rbwt(rbwt::load_rowbowt<StringT>(args.inpre, flag));
     return rbwt;
 }
 
+template<typename StringT>
 void rb_align_all(RbAlignArgs args) {
-    rbwt::RowBowt<> rbwt(load_rbwt(args));
+    auto start = std::chrono::high_resolution_clock::now();
+    rbwt::RowBowt<StringT> rbwt(load_rbwt<StringT>(args));
+    auto stop = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> index_load_time = stop - start;
     int err, nreads = 0, noccs = 0;
     gzFile fq_fp(gzopen(args.fastq_fname.data(), "r"));
     if (fq_fp == NULL) {
@@ -140,9 +172,12 @@ void rb_align_all(RbAlignArgs args) {
         exit(1);
     }
     kseq_t* seq(kseq_init(fq_fp));
+    start = std::chrono::high_resolution_clock::now();
     while ((err = kseq_read(seq)) >= 0) {
-        rb_report(rbwt, args, seq);
+        rb_report<StringT>(rbwt, args, seq);
     }
+    stop = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> total_query_time = stop - start;
     // error checking here
     switch(err) {
         case -2:
@@ -154,8 +189,14 @@ void rb_align_all(RbAlignArgs args) {
         default:
             break;
     }
+    std::cerr << index_load_time.count() << " " << total_query_time.count() << std::endl;
 }
 
 int main(int argc, char** argv) {
-    rb_align_all(parse_args(argc, argv));
+    auto args = parse_args(argc, argv);
+    if (args.fbb) {
+        rb_align_all<ri::fbb_string>(args);
+    } else {
+        rb_align_all<ri::rle_string_sd>(args);
+    }
 }

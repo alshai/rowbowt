@@ -22,7 +22,7 @@ struct RbAlignArgs {
     std::string inpre = "";
     std::string fastq_fname = "";
     int ftab = 0;
-    int fbb = 1;
+    int fbb = 0;
     size_t wsize = 10;
     size_t max_range = 1000;
     size_t min_range = 0;
@@ -52,7 +52,7 @@ RbAlignArgs parse_args(int argc, char** argv) {
         {"min-range", required_argument, 0, 'm'},
         {"threads", required_argument, 0, 't'},
         {"max-tasks", required_argument, 0, 'u'},
-        {"fbb", required_argument, 0, 'x'}
+        {"fbb", no_argument, 0, 'x'}
     };
     int long_index = 0;
     while((c = getopt_long(argc, argv, "o:w:r:hft:m:u:x", long_options, &long_index)) != -1) {
