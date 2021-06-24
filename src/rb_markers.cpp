@@ -23,7 +23,9 @@ struct RbAlignArgs {
     std::string fastq_fname = "";
     int ftab = 0;
     int fbb = 0;
-    size_t wsize = 10;
+    int overlap = 0;
+    int lmem = 0;
+    size_t wsize = 19;
     size_t max_range = 1000;
     size_t min_range = 0;
     size_t threads = 1;
@@ -31,9 +33,9 @@ struct RbAlignArgs {
 };
 
 void print_help() {
-    fprintf(stderr, "rb_markers_only");
+    fprintf(stderr, "rb_markers\n");
     fprintf(stderr, "Usage: rb_markers_only [options] <index_prefix> <input_fastq_name>\n");
-    fprintf(stderr, "    --inexact                                     \n");
+    fprintf(stderr, "    --inexact\n");
     fprintf(stderr, "    --wsize            <int>         window size for performing marker queries along read\n");
     fprintf(stderr, "    --max-range        <int>         range-size upper threshold for performing marker queries\n");
     fprintf(stderr, "    --min-range        <int>         range-size upper threshold for performing marker queries\n");
@@ -52,11 +54,16 @@ RbAlignArgs parse_args(int argc, char** argv) {
         {"min-range", required_argument, 0, 'm'},
         {"threads", required_argument, 0, 't'},
         {"max-tasks", required_argument, 0, 'u'},
-        {"fbb", no_argument, 0, 'x'}
+        {"fbb", no_argument, &args.fbb, 1},
+        {"ftab", no_argument, &args.ftab, 1},
+        {"overlap", no_argument, &args.overlap, 1},
+        {"lmem", no_argument, &args.lmem, 1},
+        {0,         0,           0,             0}
     };
     int long_index = 0;
     while((c = getopt_long(argc, argv, "o:w:r:hft:m:u:x", long_options, &long_index)) != -1) {
         switch (c) {
+            case 0: break;
             case 't':
                 args.threads = std::atol(optarg);
                 break;
@@ -87,6 +94,12 @@ RbAlignArgs parse_args(int argc, char** argv) {
                 exit(1);
                 break;
         }
+    }
+
+    // TODO: remove
+    if (args.overlap) {
+        fprintf(stderr, "overlapped seeds currently broken\n");
+        exit(1);
     }
 
     if (argc - optind < 2) {
@@ -315,9 +328,19 @@ class ThreadPool {
                 revc_seq = fwd_seq;
                 revc_seq.revc_in_place();
                 rev = false;
-                this->rbwt.get_markers_greedy_seeding(fwd_seq.seq, this->args.wsize, this->args.max_range, out_fn);
-                rev = true;
-                this->rbwt.get_markers_greedy_seeding(revc_seq.seq, this->args.wsize, this->args.max_range, out_fn);
+                if (args.lmem) {
+                    this->rbwt.get_markers_lmems(fwd_seq.seq, this->args.wsize, this->args.max_range, out_fn);
+                    rev = true;
+                    this->rbwt.get_markers_lmems(revc_seq.seq, this->args.wsize, this->args.max_range, out_fn);
+                } else if (args.overlap) {
+                    this->rbwt.get_markers_greedy_overlap_seeding(fwd_seq.seq, this->args.wsize, this->args.max_range, out_fn);
+                    rev = true;
+                    this->rbwt.get_markers_greedy_overlap_seeding(revc_seq.seq, this->args.wsize, this->args.max_range, out_fn);
+                } else {
+                    this->rbwt.get_markers_greedy_seeding(fwd_seq.seq, this->args.wsize, this->args.max_range, out_fn);
+                    rev = true;
+                    this->rbwt.get_markers_greedy_seeding(revc_seq.seq, this->args.wsize, this->args.max_range, out_fn);
+                }
                 j += 1;
                 for (auto& s: seeds) {
                     s.print_buf(out_buf);
@@ -373,31 +396,33 @@ void rb_markers_all(RbAlignArgs args) {
     std::cerr << "loading rowbowt + markers took: " << diff.count() << " seconds\n";
     // initiate thread pool
     start = std::chrono::high_resolution_clock::now();
-    ThreadPool pool(args.threads, args.max_tasks, rbwt, args);
-    // open file
-    int err, nreads = 0, noccs = 0;
-    gzFile fq_fp(gzopen(args.fastq_fname.data(), "r"));
-    if (fq_fp == NULL) {
-        fprintf(stderr, "invalid file\n");
-        exit(1);
-    }
-    kseq_t* seq(kseq_init(fq_fp));
-    // start assigning reads to threads
-    int i = 0;
-    while ((err = kseq_read(seq)) >= 0) {
-        pool.add_task(seq);
-        i += 1;
-    }
-    // error checking here
-    switch(err) {
-        case -2:
-            fprintf(stderr, "ERROR: truncated quality string\n");
-            exit(1); break;
-        case -3:
-            fprintf(stderr, "ERROR: error reading stream\n");
-            exit(1); break;
-        default:
-            break;
+    {
+        ThreadPool pool(args.threads, args.max_tasks, rbwt, args);
+        // open file
+        int err, nreads = 0, noccs = 0;
+        gzFile fq_fp(gzopen(args.fastq_fname.data(), "r"));
+        if (fq_fp == NULL) {
+            fprintf(stderr, "invalid file\n");
+            exit(1);
+        }
+        kseq_t* seq(kseq_init(fq_fp));
+        // start assigning reads to threads
+        int i = 0;
+        while ((err = kseq_read(seq)) >= 0) {
+            pool.add_task(seq);
+            i += 1;
+        }
+        // error checking here
+        switch(err) {
+            case -2:
+                fprintf(stderr, "ERROR: truncated quality string\n");
+                exit(1); break;
+            case -3:
+                fprintf(stderr, "ERROR: error reading stream\n");
+                exit(1); break;
+            default:
+                break;
+        }
     }
     stop = std::chrono::high_resolution_clock::now();
     diff = stop - start;

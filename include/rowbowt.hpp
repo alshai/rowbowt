@@ -340,38 +340,66 @@ class RowBowt {
 
     template<typename F>
     void get_markers_lmems(const std::string query, uint64_t wsize, uint64_t max_range, F fn) const {
-        uint64_t m = query.size();
-        for (int j = 0; j < query.size(); ++j) {
-            range_t prev_range = full_range(), range = full_range();
-            uint64_t window_ei = m-j, seed_ei = m-j;
-            std::vector<MarkerT> mbuf;
-            uint64_t i = 0;
-            auto update_mbuf = [&](range_t r) {
-                mbuf.clear();
-                if (r.second - r.first + 1 <= max_range) {
-                    mbuf = markers_at(r, mbuf);
-                }
-                fn(r, std::make_pair(m-i,seed_ei-1), mbuf);
-            };
-            for (i = j; i < query.size(); ++i) {
-                range = LF(range, query[m-i-1]);
-                if (range.second < range.first) { // this is when the seed fails
-                    if (seed_ei-(m-i) >= wsize) { // check markers here if seed is large enough, regardless of window length
-                        update_mbuf(prev_range);
-                    }
-                    break;
-                } else { // this is for each window
-                    if (window_ei-(m-i) >= wsize) {
-                        update_mbuf(range);
-                        window_ei = m-i; // current position is now window end
-                    }
+        range_t prev_range = full_range();
+        range_t range = full_range();
+        size_t k = 0;
+        if (disable_ft_ || !ft_) {
+            std::cerr << "ftab must be enabled!" << std::endl;
+            exit(1);
+        }
+        if (ft_->get_k() - 1 > wsize) {
+            std::cerr << "ERROR: wsize cannot be greater than or equal to ftab k size. please rebuild ftab with smaller k\n";
+            exit(1);
+        }
+        std::vector<MarkerT> mbuf;
+        // input: range, start w/i query, end (excl) w/i query.
+        auto update_mbuf = [&](range_t r) {
+            if (r.second-r.first+1 <= max_range) {
+                mbuf = markers_at(r, mbuf);
+            }
+        };
+        for (size_t k = 0; k < query.size(); ++k) {
+            mbuf.clear();
+            size_t m = query.size() - k;
+            size_t j;
+            size_t i = 0;
+            size_t window_ei = m;
+            prev_range = full_range();
+            range = full_range();
+            if (query.size() - k >= ft_->get_k()) {
+                std::tie(range, j) = search_ftab(query.substr(m - ft_->get_k(), ft_->get_k()));
+                if (range.second < range.first) {
+                    std::cerr << "skipping lmem: " << k << std::endl;
+                    break; // no possible lmem here
+                } else {
+                    i += ft_->get_k();
                     prev_range = range;
                 }
             }
-            // this is when the whole read is done and a seed hasn't finished yet
-            if (seed_ei-(m-i) >= wsize) {
+            std::cerr << "starting with (k->i): " << k << " -> " << i << std::endl;
+            for (i; i < m; ++i) {
+                std::cerr << "k->i: " << k  << " -> " << i << " (" << m << ")" << std::endl;
+                prev_range = range;
+                range = LF(range, query[m-i-1]);
+                if (range.second < range.first) { // this is when the seed fails
+                    if (m-(m-i) >= wsize) { // check markers here if seed is large enough, regardless of window length
+                        update_mbuf(prev_range);
+                    }
+                    std::cerr << "seed stopped for: " << m-(i-1) << " -> " << m << std::endl;
+                    fn(prev_range, std::make_pair(m-i, m-1), mbuf);
+                    mbuf.clear();
+                    break;
+                } else { // this is for each window
+                    if (window_ei-(m-i-1) >= wsize) {
+                        update_mbuf(range);
+                        window_ei = m-i-1; // current position is now window end (exclusive)
+                    }
+                }
+            }
+            if (range.second>=range.first && m-(m-i) >= wsize) {
                 update_mbuf(range);
             }
+            fn(range, std::make_pair(m-i, m-1), mbuf);
         }
     }
 
