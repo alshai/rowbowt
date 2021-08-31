@@ -270,7 +270,7 @@ struct MarkerSeed {
 
     void clear_if_conflicting(size_t read_len) {
         if (get_seq(markers.back()) != get_seq(markers.front()) || get_pos(markers.back()) - get_pos(markers.front()) >= read_len) {
-           markers.clear(); 
+           markers.clear();
         }
     }
 };
@@ -278,7 +278,7 @@ struct MarkerSeed {
 
 class SeedVec : public std::vector<MarkerSeed> {
 
-    public: 
+    public:
 
     void keep_seeds_best_strand() {
         Strand best_strand = best_strand_by_len();
@@ -503,9 +503,9 @@ class ThreadPool {
             }
         };
         if (args.heuristic)
-            workers.push_back(std::thread(worker));
-        else
             workers.push_back(std::thread(worker_heuristic));
+        else
+            workers.push_back(std::thread(worker));
     }
     int nthreads=1;
     int max_tasks = 1024;
