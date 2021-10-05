@@ -24,18 +24,20 @@ rbwt::RowBowtConstructArgs parse_args(int argc, char** argv) {
     rbwt::RowBowtConstructArgs args;
     static struct option long_options[] {
         {"output-prefix", required_argument, 0, 'o'},
-        {"tsa", required_argument, 0, 's'},
-        {"ma", required_argument, 0, 'm'},
-        {"dl", required_argument, 0, 'l'},
-        {"ft", required_argument, 0, 'f'},
+        {"tsa", no_argument, 0, 's'},
+        {"dl", no_argument, 0, 'l'},
         {"ftab-only", no_argument, 0, 'a'},
-        {"fbb", no_argument, 0, 'x'}
+        {"ma", no_argument, 0, 'm'},
+        {"ft", no_argument, 0, 'f'},
+        {"fbb", no_argument, 0, 'x'},
+        {0, 0, 0, 0}
     };
     int long_index = 0;
     while((c = getopt_long(argc, argv, "xo:k:lfsmha", long_options, &long_index)) != -1) {
         switch (c) {
             case 'x':
-                args.fbb = 1; break;
+                args.fbb = 1;
+                break;
             case 'o':
                 args.prefix = optarg;
                 break;

@@ -26,14 +26,17 @@ struct RbAlignArgs {
     int fbb = 0;
     int overlap = 0;
     int lmem = 0;
-    int heuristic = 0;
     size_t wsize = 19;
     size_t max_range = 1000;
     size_t min_range = 0;
     size_t threads = 1;
     size_t max_tasks = 1024;
     size_t read_len = 101;
-    size_t min_seed_len = 20;
+    size_t min_seed_len = 0;
+    int clear_conflicting = 0;
+    int clear_identical = 0;
+    int best_strand = 0;
+    int heuristic = 0;
 };
 
 
@@ -61,12 +64,15 @@ RbAlignArgs parse_args(int argc, char** argv) {
         {"threads",          required_argument,  0,                't'},
         {"max-tasks",        required_argument,  0,                'u'},
         {"read-len",         required_argument,  0,                'l'},
-        {"min-seed-length",  required_argument,  0,                'y'},
         {"fbb",              no_argument,        &args.fbb,        1},
         {"ftab",             no_argument,        &args.ftab,       1},
         {"overlap",          no_argument,        &args.overlap,    1},
         {"lmem",             no_argument,        &args.lmem,       1},
         {"heuristic",        no_argument,        &args.heuristic,  1},
+        {"best-strand-only",   no_argument,        &args.best_strand,        1},
+        {"min-seed-length",    required_argument,  0,                        'y'},
+        {"clear-conflicting",  no_argument,        &args.clear_conflicting,  1},
+        {"clear-identical",    no_argument,        &args.clear_identical,    1},
         {0,0,0,0}
     };
     int long_index = 0;
@@ -243,6 +249,7 @@ struct MarkerSeed {
     size_t query_start = 0;
     size_t query_len = 0;
     std::vector<MarkerT> markers;
+    size_t size() { return markers.size(); }
     void print_buf(std::ostream& os) {
         os << name << " " << range_size << " " << (strand == Strand::FWD ? "+" : "-");
         os << " " << query_start << " " << query_len;
@@ -257,6 +264,7 @@ struct MarkerSeed {
     // these filtering functions assume that the markers are sorted
 
     void filter_identical_pos() {
+        if (!markers.size()) return;
         MarkerT pm = 0;
         auto pred = [&](const MarkerT& m) {
             if (get_seq(m) == get_seq(pm) && get_pos(m) == get_pos(pm)) return true;
@@ -269,6 +277,7 @@ struct MarkerSeed {
 
 
     void clear_if_conflicting(size_t read_len) {
+        if (!markers.size()) return;
         if (get_seq(markers.back()) != get_seq(markers.front()) || get_pos(markers.back()) - get_pos(markers.front()) >= read_len) {
            markers.clear();
         }
@@ -281,12 +290,16 @@ class SeedVec : public std::vector<MarkerSeed> {
     public:
 
     void keep_seeds_best_strand() {
-        Strand best_strand = best_strand_by_len();
-        this->erase(std::remove_if(this->begin(), this->end(), [&](MarkerSeed ms) {return ms.strand != best_strand;}), this->end());
+        if (this->size()) {
+            Strand best_strand = best_strand_by_len();
+            this->erase(std::remove_if(this->begin(), this->end(), [&](MarkerSeed ms) {return ms.strand != best_strand;}), this->end());
+        }
     }
 
     void keep_seeds_by_len(size_t len) {
-        this->erase(std::remove_if(this->begin(), this->end(), [&](MarkerSeed ms) {return ms.query_len < len;}), this->end());
+        if (this->size()) {
+            this->erase(std::remove_if(this->begin(), this->end(), [&](MarkerSeed ms) {return ms.query_len < len;}), this->end());
+        }
     }
 
     private:
@@ -316,7 +329,7 @@ class ThreadPool {
         }
     }
     ~ThreadPool() {
-        stop = true;
+        stop_ = true;
         task_status.notify_all();
         for (auto& worker: workers) {
             worker.join();
@@ -326,7 +339,7 @@ class ThreadPool {
     void add_task(kseq_t* kseq) {
         {
             std::unique_lock<std::mutex> lock(task_mutex);
-            if (stop) {
+            if (stop_) {
                 throw std::runtime_error("add_task stopped ThreadPool");
             }
             if (seq_queue.size() > max_tasks) {
@@ -351,13 +364,13 @@ class ThreadPool {
             Strand strand = Strand::FWD;
             auto out_fn = [&](typename rbwt::RowBowt<StringT>::range_t p, std::pair<size_t, size_t> q, std::vector<MarkerT> mbuf) {
                 auto& seq = strand == Strand::REV ? revc_seq : fwd_seq;
-                if (p.second < p.first) return;
                 MarkerSeed ms;
                 ms.name = seq.name;
                 ms.strand = strand;
                 ms.range_size = p.second-p.first+1;
                 ms.query_start = ms.strand == Strand::REV ? seq.seq.size()-q.first-1 : q.first;
                 ms.query_len   = q.second-q.first+1;
+                if (p.second < p.first) return;
                 if (ms.range_size >= this->args.min_range && mbuf.size()) {
                     for (const auto m: mbuf) {
                         ms.markers.push_back(m);
@@ -371,8 +384,8 @@ class ThreadPool {
                 // let Pool know that a thread is free to take a task
                 {
                     std::unique_lock<std::mutex> lock(this->task_mutex);
-                    this->task_status.wait(lock, [this]() {return this->stop || !this->seq_queue.empty();});
-                    if (this->stop && this->seq_queue.empty()) break;
+                    this->task_status.wait(lock, [this]() {return this->stop_ || !this->seq_queue.empty();});
+                    if (this->stop_ && this->seq_queue.empty()) break;
                     // copy over data
                     fwd_seq = std::move(seq_queue.front());
                     seq_queue.pop();
@@ -431,7 +444,7 @@ class ThreadPool {
                 ms.range_size = p.second-p.first+1;
                 ms.query_start = ms.strand == Strand::REV ? seq.seq.size()-q.first-1 : q.first;
                 ms.query_len   = q.second-q.first+1;
-                if (p.second < p.first || ms.query_len < this->args.read_len) return;
+                if (p.second < p.first || ms.query_len < this->args.min_seed_len) return;
                 if (ms.range_size >= this->args.min_range && mbuf.size()) {
                     for (const auto m: mbuf) {
                         ms.markers.push_back(m);
@@ -440,11 +453,12 @@ class ThreadPool {
                     ms.markers.erase(std::unique(ms.markers.begin(), ms.markers.end()), ms.markers.end());
                 }
                 // filter markers here
-                ms.clear_if_conflicting(this->args.read_len);
-                ms.filter_identical_pos();
+                if (args.clear_conflicting) ms.clear_if_conflicting(this->args.read_len);
+                if (args.clear_identical) ms.filter_identical_pos();
                 seeds.push_back(ms);
                 // stop conditions: not enough useful sequence left over
-                if (this->args.read_len - (ms.query_start + ms.query_len) < this->args.min_seed_len) {
+                if (args.best_strand && this->args.read_len - (ms.query_start + ms.query_len) < this->args.min_seed_len) {
+                    // terr << (strand == Strand::FWD ? "+" : "-") << " " << this->args.read_len << "," <<  ms.query_start << "-" << ms.query_len << "=" << ms.query_start + ms.query_len << std::endl;
                     stop = true;
                 }
             };
@@ -452,8 +466,8 @@ class ThreadPool {
                 // let Pool know that a thread is free to take a task
                 {
                     std::unique_lock<std::mutex> lock(this->task_mutex);
-                    this->task_status.wait(lock, [this]() {return this->stop || !this->seq_queue.empty();});
-                    if (this->stop && this->seq_queue.empty()) break;
+                    this->task_status.wait(lock, [this]() {return this->stop_ || !this->seq_queue.empty();});
+                    if (this->stop_ && this->seq_queue.empty()) break;
                     // copy over data
                     fwd_seq = std::move(seq_queue.front());
                     seq_queue.pop();
@@ -467,6 +481,7 @@ class ThreadPool {
                 revc_seq = fwd_seq;
                 revc_seq.revc_in_place();
                 strand = booler.get_bool() ? Strand::FWD : Strand::REV;
+                // strand = Strand::FWD;
                 KSeqString& one = strand == Strand::REV ? revc_seq : fwd_seq;
                 KSeqString& two = strand == Strand::REV ? fwd_seq  : revc_seq;
                 stop = false;
@@ -487,8 +502,8 @@ class ThreadPool {
                         this->rbwt.get_markers_greedy_seeding(two.seq, this->args.wsize, this->args.max_range, out_fn);
                 }
                 j += 1;
-                seeds.keep_seeds_best_strand();
-                seeds.keep_seeds_by_len(this->args.read_len);
+                if (args.best_strand) seeds.keep_seeds_best_strand();
+                if (args.min_seed_len) seeds.keep_seeds_by_len(this->args.min_seed_len);
                 for (auto& s: seeds) {
                     s.print_buf(out_buf);
                 }
@@ -509,7 +524,7 @@ class ThreadPool {
     }
     int nthreads=1;
     int max_tasks = 1024;
-    std::atomic_bool stop = false;
+    std::atomic_bool stop_ = false;
     std::mutex task_mutex;
     std::condition_variable task_status;
     std::condition_variable queue_status;
@@ -535,7 +550,7 @@ rbwt::RowBowt<StringT> load_rbwt(const RbAlignArgs args) {
 template<typename StringT=rbwt::rle_string_t>
 void rb_markers_all(RbAlignArgs args) {
     auto start = std::chrono::high_resolution_clock::now();
-    std::cerr << "loading rowbowt + markers";
+    std::cerr << "(" << typeid(StringT).name() << ")" << " loading rowbowt + markers";
     if (args.ftab) {
         std::cerr << " and ftab";
     }

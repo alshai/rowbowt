@@ -49,6 +49,7 @@ struct RowBowtConstructArgs {
 template<typename StringT=rle_string_t>
 typename std::enable_if<std::is_same<StringT, ri::rle_string_sd>::value, void>::type
 construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
+    std::cerr << "constructing using rle_string (" << typeid(StringT).name() << ")" << std::endl;
     // std::ifstream bwt_ifs(args.bwt_fname);
     StringT bwt(args.bwt_fname);
     std::ofstream bwt_ofs(args.prefix + rbwt_suffix);
@@ -90,6 +91,7 @@ construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
 template<typename StringT=rle_string_t>
 typename std::enable_if<std::is_same<StringT, ri::fbb_string>::value, void>::type
 construct_and_serialize_rowbowt(RowBowtConstructArgs args) {
+    std::cerr << "constructing using fbb (" << typeid(StringT).name() << ")" << std::endl;
     StringT bwt(args.bwt_fname);
     std::ofstream bwt_ofs(args.prefix + rbwt_suffix);
     bwt.serialize(bwt_ofs);
@@ -175,6 +177,7 @@ template<typename StringT=rle_string_t>
 RowBowt<StringT> load_rowbowt(std::string prefix, LoadRbwtFlag flag) {
     StringT bwt;
     std::ifstream bwt_ifs(prefix + rbwt_suffix);
+    std::cerr << "loading type: " << typeid(StringT).name() << std::endl;
     bwt.load(bwt_ifs);
     bwt_ifs.close();
     // this would be so much cleaner in Rust... or am I just doing it wrong?
