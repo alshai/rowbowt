@@ -432,18 +432,22 @@ class RowBowt {
             prev_range = range;
         }
         uint64_t window_ei = m, seed_ei = m;
-        std::vector<MarkerT> mbuf;
-        // input: range, start w/i query, end (excl) w/i query.
-        auto update_mbuf = [&](range_t r) {
+        std::map<MarkerT, std::pair<size_t,size_t>> mbuf;
+        auto update_mbuf = [&](range_t r, size_t qstart, size_t qend) {
             if (r.second-r.first+1 <= max_range) {
-                mbuf = markers_at(r, mbuf);
+                auto new_markers = markers_at(r);
+                for (auto m: new_markers) {
+                    if (mbuf.find(m) == mbuf.end()) { // only add a marker if it wasn't found before
+                        mbuf[m] = std::make_pair(qstart, qend);
+                    }
+                }
             }
         };
         for (i; i < query.size(); ++i) {
             range = LF(range, query[m-i-1]);
             if (range.second < range.first) { // this is when the seed fails
                 if (seed_ei-(m-i) >= wsize) { // check markers here if seed is large enough, regardless of window length
-                    update_mbuf(prev_range);
+                    update_mbuf(prev_range, m-i, seed_ei);
                 } // then reset the seed, skipping query[m-i-1]
                 fn(prev_range, std::make_pair(m-i, seed_ei-1), mbuf);
                 mbuf.clear();
@@ -467,7 +471,7 @@ class RowBowt {
                 }
             } else { // this is for each window
                 if (window_ei-(m-i-1) >= wsize) {
-                    update_mbuf(range);
+                    update_mbuf(range, m-i-1, window_ei);
                     window_ei = m-i-1; // current position is now window end (exclusive)
                 }
                 prev_range = range;
@@ -476,9 +480,10 @@ class RowBowt {
 
         // this is when the whole read is done and a seed hasn't finished yet
         if (range.second>=range.first && seed_ei-(m-i) >= wsize) {
-            update_mbuf(range);
+            update_mbuf(range, m-i, seed_ei);
         }
         fn(range, std::make_pair(m-i, seed_ei-1), mbuf);
+        mbuf.clear();
     }
 
 

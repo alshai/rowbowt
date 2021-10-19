@@ -248,38 +248,62 @@ struct MarkerSeed {
     size_t range_size = 0;
     size_t query_start = 0;
     size_t query_len = 0;
-    std::vector<MarkerT> markers;
+    std::map<MarkerT, int> markers;
+    std::vector<MarkerT> marker_vec;
     size_t size() { return markers.size(); }
+    std::string marker_str(MarkerT m) {
+        return std::to_string(get_seq(m)) + "/" + std::to_string(m) + "/" + std::to_string(static_cast<int>(get_allele(m)));
+    }
     void print_buf(std::ostream& os) {
         os << name << " " << range_size << " " << (strand == Strand::FWD ? "+" : "-");
         os << " " << query_start << " " << query_len;
-        if (markers.size()) {
-            for (auto m: markers) {
-                os << " " << get_seq(m) << "/" <<  get_pos(m) << "/" << static_cast<int>(get_allele(m));
+        if (marker_vec.size()) {
+            os << " ";
+            for (auto it=marker_vec.begin(); it != marker_vec.end(); ++it) {
+                os << marker_str(*it);
+                if (it != marker_vec.end()-1) {
+                    os << ",";
+                }
+            }
+            os << " ";
+            // print avg qualities for each marker
+            for (auto it=marker_vec.begin(); it != marker_vec.end(); ++it) {
+                os << markers[*it];
+                if (it != marker_vec.end()-1) {
+                    os << ",";
+                }
             }
         } else os << " .";
         os << std::endl;
     }
 
-    // these filtering functions assume that the markers are sorted
+
+    void create_marker_vec() {
+        marker_vec.clear();
+        for (const auto& [m, qual]: markers) {
+            marker_vec.push_back(m);
+        }
+    }
+    //
+    // these filtering functions assume that create_marker_vec was called
 
     void filter_identical_pos() {
-        if (!markers.size()) return;
+        if (!marker_vec.size()) return;
         MarkerT pm = 0;
         auto pred = [&](const MarkerT& m) {
             if (get_seq(m) == get_seq(pm) && get_pos(m) == get_pos(pm)) return true;
             pm = m;
             // Look ahead to the next element to see if it's a duplicate.
-            return &m != &markers.back() && get_seq((&m)[1]) == get_seq(m) && get_pos((&m)[1]) == get_pos(m);
+            return &m != &marker_vec.back() && get_seq((&m)[1]) == get_seq(m) && get_pos((&m)[1]) == get_pos(m);
         };
-        markers.erase(std::remove_if(markers.begin(), markers.end(), pred), markers.end());
+        marker_vec.erase(std::remove_if(marker_vec.begin(), marker_vec.end(), pred), marker_vec.end());
     }
 
 
     void clear_if_conflicting(size_t read_len) {
-        if (!markers.size()) return;
-        if (get_seq(markers.back()) != get_seq(markers.front()) || get_pos(markers.back()) - get_pos(markers.front()) >= read_len) {
-           markers.clear();
+        if (!marker_vec.size()) return;
+        if (get_seq(marker_vec.back()) != get_seq(marker_vec.front()) || get_pos(marker_vec.back()) - get_pos(marker_vec.front()) >= read_len) {
+           marker_vec.clear();
         }
     }
 };
@@ -357,78 +381,6 @@ class ThreadPool {
         auto worker = [this, i]() {
             KSeqString fwd_seq;
             KSeqString revc_seq;
-            SeedVec seeds;
-            std::ostringstream out_buf;
-            std::vector<MarkerT> markers;
-            int j = 0;
-            Strand strand = Strand::FWD;
-            auto out_fn = [&](typename rbwt::RowBowt<StringT>::range_t p, std::pair<size_t, size_t> q, std::vector<MarkerT> mbuf) {
-                auto& seq = strand == Strand::REV ? revc_seq : fwd_seq;
-                MarkerSeed ms;
-                ms.name = seq.name;
-                ms.strand = strand;
-                ms.range_size = p.second-p.first+1;
-                ms.query_start = ms.strand == Strand::REV ? seq.seq.size()-q.first-1 : q.first;
-                ms.query_len   = q.second-q.first+1;
-                if (p.second < p.first) return;
-                if (ms.range_size >= this->args.min_range && mbuf.size()) {
-                    for (const auto m: mbuf) {
-                        ms.markers.push_back(m);
-                    }
-                    std::sort(ms.markers.begin(), ms.markers.end(), marker_cmp);
-                    ms.markers.erase(std::unique(ms.markers.begin(), ms.markers.end()), ms.markers.end());
-                }
-                seeds.push_back(ms);
-            };
-            while (true) {
-                // let Pool know that a thread is free to take a task
-                {
-                    std::unique_lock<std::mutex> lock(this->task_mutex);
-                    this->task_status.wait(lock, [this]() {return this->stop_ || !this->seq_queue.empty();});
-                    if (this->stop_ && this->seq_queue.empty()) break;
-                    // copy over data
-                    fwd_seq = std::move(seq_queue.front());
-                    seq_queue.pop();
-                    queue_status.notify_one();
-                }
-                seeds.clear();
-                // prepare fwd and revc
-                for (auto& c: fwd_seq.seq) {
-                    c = seq_ntoa_table[c];
-                }
-                revc_seq = fwd_seq;
-                revc_seq.revc_in_place();
-                strand = Strand::FWD;
-                if (args.lmem) {
-                    this->rbwt.get_markers_lmems(fwd_seq.seq, this->args.wsize, this->args.max_range, out_fn);
-                    strand = switch_strand(strand);
-                    this->rbwt.get_markers_lmems(revc_seq.seq, this->args.wsize, this->args.max_range, out_fn);
-                } else if (args.overlap) {
-                    this->rbwt.get_markers_greedy_overlap_seeding(fwd_seq.seq, this->args.wsize, this->args.max_range, out_fn);
-                    strand = switch_strand(strand);
-                    this->rbwt.get_markers_greedy_overlap_seeding(revc_seq.seq, this->args.wsize, this->args.max_range, out_fn);
-                } else {
-                    this->rbwt.get_markers_greedy_seeding(fwd_seq.seq, this->args.wsize, this->args.max_range, out_fn);
-                    strand = switch_strand(strand);
-                    this->rbwt.get_markers_greedy_seeding(revc_seq.seq, this->args.wsize, this->args.max_range, out_fn);
-                }
-                j += 1;
-                for (auto& s: seeds) {
-                    s.print_buf(out_buf);
-                }
-                if (out_buf.tellp() > 4096) {
-                    tout << out_buf.str();
-                    out_buf.str(std::string());
-                }
-            }
-            if (out_buf.tellp()) {
-                tout << out_buf.str();
-                out_buf.str(std::string());
-            }
-        };
-        auto worker_heuristic = [this, i]() {
-            KSeqString fwd_seq;
-            KSeqString revc_seq;
             RandomBoolGenerator booler;
             SeedVec seeds;
             std::ostringstream out_buf;
@@ -436,7 +388,7 @@ class ThreadPool {
             int j = 0;
             Strand strand = Strand::FWD;
             bool stop = false;
-            auto out_fn = [&](typename rbwt::RowBowt<StringT>::range_t p, std::pair<size_t, size_t> q, std::vector<MarkerT> mbuf) {
+            auto out_fn = [&](typename rbwt::RowBowt<StringT>::range_t p, std::pair<size_t, size_t> q, std::map<MarkerT, std::pair<size_t,size_t>> mbuf) {
                 auto& seq = strand == Strand::REV ? revc_seq : fwd_seq;
                 MarkerSeed ms;
                 ms.name = seq.name;
@@ -446,15 +398,19 @@ class ThreadPool {
                 ms.query_len   = q.second-q.first+1;
                 if (p.second < p.first || ms.query_len < this->args.min_seed_len) return;
                 if (ms.range_size >= this->args.min_range && mbuf.size()) {
-                    for (const auto m: mbuf) {
-                        ms.markers.push_back(m);
+                    for (const auto& [m, marker_window_range]: mbuf) {
+                        int avg_qual = 0;
+                        for (size_t i = marker_window_range.first; i < marker_window_range.second; ++i) {
+                            avg_qual = seq.qual[i];
+                        }
+                        avg_qual = avg_qual / (marker_window_range.second - marker_window_range.first);
+                        if (ms.markers.find(m) == ms.markers.end()) {
+                            ms.markers[m] = avg_qual;
+                        }
                     }
-                    std::sort(ms.markers.begin(), ms.markers.end(), marker_cmp);
-                    ms.markers.erase(std::unique(ms.markers.begin(), ms.markers.end()), ms.markers.end());
+                    // std::sort(ms.markers.begin(), ms.markers.end(), marker_cmp);
+                    // ms.markers.erase(std::unique(ms.markers.begin(), ms.markers.end()), ms.markers.end());
                 }
-                // filter markers here
-                if (args.clear_conflicting) ms.clear_if_conflicting(this->args.read_len);
-                if (args.clear_identical) ms.filter_identical_pos();
                 seeds.push_back(ms);
                 // stop conditions: not enough useful sequence left over
                 if (args.best_strand && this->args.read_len - (ms.query_start + ms.query_len) < this->args.min_seed_len) {
@@ -485,26 +441,30 @@ class ThreadPool {
                 KSeqString& one = strand == Strand::REV ? revc_seq : fwd_seq;
                 KSeqString& two = strand == Strand::REV ? fwd_seq  : revc_seq;
                 stop = false;
-                if (args.lmem) {
-                    this->rbwt.get_markers_lmems(one.seq, this->args.wsize, this->args.max_range, out_fn);
-                    strand = switch_strand(strand);
-                    if (!stop)
-                        this->rbwt.get_markers_lmems(two.seq, this->args.wsize, this->args.max_range, out_fn);
-                } else if (args.overlap) {
-                    this->rbwt.get_markers_greedy_overlap_seeding(one.seq, this->args.wsize, this->args.max_range, out_fn);
-                    strand = switch_strand(strand);
-                    if (!stop)
-                        this->rbwt.get_markers_greedy_overlap_seeding(two.seq, this->args.wsize, this->args.max_range, out_fn);
-                } else {
+                // if (args.lmem) {
+                //     this->rbwt.get_markers_lmems(one.seq, this->args.wsize, this->args.max_range, out_fn);
+                //     strand = switch_strand(strand);
+                //     if (!stop)
+                //         this->rbwt.get_markers_lmems(two.seq, this->args.wsize, this->args.max_range, out_fn);
+                // } else if (args.overlap) {
+                //     this->rbwt.get_markers_greedy_overlap_seeding(one.seq, this->args.wsize, this->args.max_range, out_fn);
+                //     strand = switch_strand(strand);
+                //     if (!stop)
+                //         this->rbwt.get_markers_greedy_overlap_seeding(two.seq, this->args.wsize, this->args.max_range, out_fn);
+                // } else {
                     this->rbwt.get_markers_greedy_seeding(one.seq, this->args.wsize, this->args.max_range, out_fn);
                     strand = switch_strand(strand);
                     if (!stop)
                         this->rbwt.get_markers_greedy_seeding(two.seq, this->args.wsize, this->args.max_range, out_fn);
-                }
+                // }
                 j += 1;
                 if (args.best_strand) seeds.keep_seeds_best_strand();
                 if (args.min_seed_len) seeds.keep_seeds_by_len(this->args.min_seed_len);
                 for (auto& s: seeds) {
+                    // filter markers here
+                    s.create_marker_vec();
+                    if (args.clear_conflicting) s.clear_if_conflicting(this->args.read_len);
+                    if (args.clear_identical) s.filter_identical_pos();
                     s.print_buf(out_buf);
                 }
                 if (out_buf.tellp() > 4096) {
@@ -517,10 +477,7 @@ class ThreadPool {
                 out_buf.str(std::string());
             }
         };
-        if (args.heuristic)
-            workers.push_back(std::thread(worker_heuristic));
-        else
-            workers.push_back(std::thread(worker));
+        workers.push_back(std::thread(worker));
     }
     int nthreads=1;
     int max_tasks = 1024;
