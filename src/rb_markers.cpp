@@ -252,7 +252,7 @@ struct MarkerSeed {
     std::vector<MarkerT> marker_vec;
     size_t size() { return markers.size(); }
     std::string marker_str(MarkerT m) {
-        return std::to_string(get_seq(m)) + "/" + std::to_string(m) + "/" + std::to_string(static_cast<int>(get_allele(m)));
+        return std::to_string(get_seq(m)) + "/" + std::to_string(get_pos(m)) + "/" + std::to_string(static_cast<int>(get_allele(m)));
     }
     void print_buf(std::ostream& os) {
         os << name << " " << range_size << " " << (strand == Strand::FWD ? "+" : "-");
@@ -273,7 +273,7 @@ struct MarkerSeed {
                     os << ",";
                 }
             }
-        } else os << " .";
+        } else os << " . .";
         os << std::endl;
     }
 
@@ -283,6 +283,8 @@ struct MarkerSeed {
         for (const auto& [m, qual]: markers) {
             marker_vec.push_back(m);
         }
+        std::sort(marker_vec.begin(), marker_vec.end(), [](MarkerT m1, MarkerT m2) { return std::make_pair(get_seq(m1), get_pos(m1)) < std::make_pair(get_seq(m2), get_pos(m2)); }
+        );
     }
     //
     // these filtering functions assume that create_marker_vec was called
@@ -399,13 +401,12 @@ class ThreadPool {
                 if (p.second < p.first || ms.query_len < this->args.min_seed_len) return;
                 if (ms.range_size >= this->args.min_range && mbuf.size()) {
                     for (const auto& [m, marker_window_range]: mbuf) {
-                        int avg_qual = 0;
-                        for (size_t i = marker_window_range.first; i < marker_window_range.second; ++i) {
-                            avg_qual = seq.qual[i];
+                        int min_qual = seq.qual[0];
+                        for (size_t i = marker_window_range.first + 1; i < marker_window_range.second; ++i) {
+                            min_qual = seq.qual[i] < min_qual ? seq.qual[i] : min_qual;
                         }
-                        avg_qual = avg_qual / (marker_window_range.second - marker_window_range.first);
                         if (ms.markers.find(m) == ms.markers.end()) {
-                            ms.markers[m] = avg_qual;
+                            ms.markers[m] = min_qual;
                         }
                     }
                     // std::sort(ms.markers.begin(), ms.markers.end(), marker_cmp);
@@ -460,6 +461,9 @@ class ThreadPool {
                 j += 1;
                 if (args.best_strand) seeds.keep_seeds_best_strand();
                 if (args.min_seed_len) seeds.keep_seeds_by_len(this->args.min_seed_len);
+                if (!seeds.size()) {
+                    out_buf << fwd_seq.name << " . . . . . .\n";
+                }
                 for (auto& s: seeds) {
                     // filter markers here
                     s.create_marker_vec();
