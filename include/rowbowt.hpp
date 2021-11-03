@@ -432,13 +432,13 @@ class RowBowt {
             prev_range = range;
         }
         uint64_t window_ei = m, seed_ei = m;
-        std::map<MarkerT, std::pair<size_t,size_t>> mbuf;
+        std::map<MarkerT, std::tuple<size_t,size_t,size_t>> mbuf;
         auto update_mbuf = [&](range_t r, size_t qstart, size_t qend) {
             if (r.second-r.first+1 <= max_range) {
                 auto new_markers = markers_at(r);
                 for (auto m: new_markers) {
                     if (mbuf.find(m) == mbuf.end()) { // only add a marker if it wasn't found before
-                        mbuf[m] = std::make_pair(qstart, qend);
+                        mbuf[m] = std::make_tuple(qstart, qend, r.second-r.first+1);
                     }
                 }
             }

@@ -33,6 +33,8 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/sdsl-lite/include)
 include_directories(${PROJECT_SOURCE_DIR}/pfbwt-f/include)
 include_directories(${PROJECT_SOURCE_DIR}/faster-minuter/include)
+include_directories($ENV{CONDA_PREFIX}/include)
+link_directories($ENV{CONDA_PREFIX}/lib)
 
 add_subdirectory(pfbwt-f)
 # add_subdirectory(${PROJECT_SOURCE_DIR}/tests)

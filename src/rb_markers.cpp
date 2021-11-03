@@ -248,7 +248,7 @@ struct MarkerSeed {
     size_t range_size = 0;
     size_t query_start = 0;
     size_t query_len = 0;
-    std::map<MarkerT, int> markers;
+    std::map<MarkerT, size_t> markers;
     std::vector<MarkerT> marker_vec;
     size_t size() { return markers.size(); }
     std::string marker_str(MarkerT m) {
@@ -266,7 +266,6 @@ struct MarkerSeed {
                 }
             }
             os << " ";
-            // print avg qualities for each marker
             for (auto it=marker_vec.begin(); it != marker_vec.end(); ++it) {
                 os << markers[*it];
                 if (it != marker_vec.end()-1) {
@@ -390,7 +389,7 @@ class ThreadPool {
             int j = 0;
             Strand strand = Strand::FWD;
             bool stop = false;
-            auto out_fn = [&](typename rbwt::RowBowt<StringT>::range_t p, std::pair<size_t, size_t> q, std::map<MarkerT, std::pair<size_t,size_t>> mbuf) {
+            auto out_fn = [&](typename rbwt::RowBowt<StringT>::range_t p, std::pair<size_t, size_t> q, std::map<MarkerT, std::tuple<size_t,size_t, size_t>> mbuf) {
                 auto& seq = strand == Strand::REV ? revc_seq : fwd_seq;
                 MarkerSeed ms;
                 ms.name = seq.name;
@@ -400,13 +399,9 @@ class ThreadPool {
                 ms.query_len   = q.second-q.first+1;
                 if (p.second < p.first || ms.query_len < this->args.min_seed_len) return;
                 if (ms.range_size >= this->args.min_range && mbuf.size()) {
-                    for (const auto& [m, marker_window_range]: mbuf) {
-                        int min_qual = seq.qual[0];
-                        for (size_t i = marker_window_range.first + 1; i < marker_window_range.second; ++i) {
-                            min_qual = seq.qual[i] < min_qual ? seq.qual[i] : min_qual;
-                        }
+                    for (const auto& [m, stuff]: mbuf) {
                         if (ms.markers.find(m) == ms.markers.end()) {
-                            ms.markers[m] = min_qual;
+                            ms.markers[m] = std::get<2>(stuff);
                         }
                     }
                     // std::sort(ms.markers.begin(), ms.markers.end(), marker_cmp);
