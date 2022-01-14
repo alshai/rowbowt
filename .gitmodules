@@ -9,4 +9,4 @@
 	url = https://github.com/alshai/pfbwt-f
 [submodule "faster-minuter"]
 	path = faster-minuter
-	url = git@github.com:dominikkempa/faster-minuter.git
+	url = https://github.com/dominikkempa/faster-minuter.git
